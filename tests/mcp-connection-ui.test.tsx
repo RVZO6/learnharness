@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
-import { ConnectionsSection } from "../components/settings/connections-section.tsx";
+import { ConnectionsSection, type ConnectionListCache } from "../components/settings/connections-section.tsx";
 
 (globalThis as Record<string, unknown>).React = React;
 const dom = parseHTML("<html><body></body></html>");
@@ -118,4 +118,36 @@ test("inline Add keeps existing connection rows and uses the Add action as the B
 	assert.equal(byTest("connection-canvas"), row);
 	assert.equal(byTest("connections-add"), anchor);
 	assert(!document.querySelector("#connection-add-form"));
+});
+
+
+test("returning to Connections shows the retained list while a fresh request is pending", async () => {
+	const cache: ConnectionListCache = { current: null };
+	const canvas = { name: "canvas", state: "connected" as const, transport: "program" as const, summary: "", tools: [], config: { command: "canvas-mcp-server" }, fields: [], details: "" };
+	globalThis.fetch = async () => Response.json({ servers: [canvas] });
+	host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+	await act(async () => root!.render(<ConnectionsSection cache={cache} />));
+	assert(byTest("connection-canvas"));
+	assert.equal(cache.current?.[0]?.name, "canvas");
+	await act(async () => root!.render(<div>Another settings screen</div>));
+	let refresh!: (response: Response) => void;
+	globalThis.fetch = () => new Promise<Response>((resolve) => { refresh = resolve; });
+	await act(async () => root!.render(<ConnectionsSection cache={cache} />));
+	assert(byTest("connection-canvas"), "return visits must show the list before the refresh resolves");
+	assert(!document.body.textContent?.includes("Loading connections"));
+	await act(async () => refresh(Response.json({ servers: [] })));
+	assert(!byTest("connection-canvas"), "background refresh must still apply external changes");
+	assert.deepEqual(cache.current, []);
+});
+
+test("a request completing after navigation cannot replace the retained connection list", async () => {
+	const cache: ConnectionListCache = { current: [] };
+	let refresh!: (response: Response) => void;
+	globalThis.fetch = () => new Promise<Response>((resolve) => { refresh = resolve; });
+	host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+	await act(async () => root!.render(<ConnectionsSection cache={cache} />));
+	await act(async () => root!.render(<div>Another settings screen</div>));
+	await act(async () => refresh(Response.json({ servers: [{ name: "late" }] })));
+	assert.deepEqual(cache.current, []);
+	assert.equal(document.body.textContent, "Another settings screen");
 });
