@@ -412,13 +412,6 @@ function ManualView({
 				/>
 			</label>
 
-			{(programConfig || onlineConfig) && (
-				<ManualSlot
-					kind={kind}
-					program={programConfig && <LaunchWarning config={programConfig} />}
-					online={onlineConfig && <LaunchWarning config={onlineConfig} />}
-				/>
-			)}
 			{error && <p role="alert" className="text-xs text-red-500">{error}</p>}
 			<div className="flex items-center gap-4">
 				<button
@@ -434,6 +427,7 @@ function ManualView({
 					Cancel
 				</button>
 			</div>
+			{config && <LaunchWarning config={config} />}
 		</div>
 	);
 }
