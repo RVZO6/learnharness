@@ -25,7 +25,7 @@ function ModelDetails({ model, children }: { model: CustomModelDraft; children: 
 	</details>;
 }
 
-function ConnectionEditor({ connection, onSaved, onCancel }: { connection?: CustomConnectionInfo; onSaved: (notice?: string) => Promise<void>; onCancel: () => void }) {
+function ConnectionEditor({ connection, onSaved, onCancel }: { connection?: CustomConnectionInfo; onSaved: () => Promise<void>; onCancel: () => void }) {
 	const [name, setName] = useState(connection?.name ?? "");
 	const [baseUrl, setBaseUrl] = useState(connection?.baseUrl ?? "");
 	const [apiKey, setApiKey] = useState<string | undefined>(connection ? undefined : "");
@@ -46,8 +46,8 @@ function ConnectionEditor({ connection, onSaved, onCancel }: { connection?: Cust
 		event.preventDefault();
 		void perform(async () => {
 			validateCustomModelDrafts(models);
-			const result = await request(`/api/custom-connections${connection ? `/${connection.id}` : ""}`, connection ? "PUT" : "POST", payload);
-			await onSaved(result.discoveryError ? `Saved. ${result.discoveryError}` : undefined);
+			await request(`/api/custom-connections${connection ? `/${connection.id}` : ""}`, connection ? "PUT" : "POST", payload);
+			await onSaved();
 		});
 	}}>
 		<fieldset disabled={busy} className="flex min-w-0 flex-col gap-3">
@@ -86,10 +86,9 @@ export function CustomConnections() {
 	const [editing, setEditing] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(true);
-	const [notice, setNotice] = useState<string | null>(null);
 	async function reload() { const result = await request("/api/custom-connections"); setConnections(result.connections); }
-	async function saved(message?: string) {
-		setEditing(null); setNotice(message ?? null);
+	async function saved() {
+		setEditing(null);
 		notifySettingsSaved("keys"); notifySettingsSaved("models");
 		try { await reload(); setError(null); } catch { setError("Custom connections could not be loaded."); }
 	}
@@ -100,13 +99,12 @@ export function CustomConnections() {
 		return () => { cancelled = true; };
 	}, []);
 	return <div className="flex flex-col gap-2" data-testid="custom-connections">
-		{notice && <p role="status" className="text-xs text-muted-foreground">{notice}</p>}
 		{loading && <p className="text-xs text-muted-foreground">Loading…</p>}
 		{error && <p role="alert" className="text-xs text-red-500">{error} <button className={actionClass} type="button" onClick={() => { void reload().then(() => setError(null)).catch(() => setError("Custom connections could not be loaded.")); }}>Retry</button></p>}
 		{connections.map((connection) => <div key={connection.id}>
-			{editing !== connection.id && <button type="button" disabled={editing !== null} onClick={() => { setEditing(connection.id); setNotice(null); }} className="flex w-full items-center justify-between gap-3 rounded-sm px-1 py-1.5 text-left text-xs hover:bg-accent"><span className="truncate">{connection.name}</span><span className="shrink-0 text-muted-foreground">Custom · {connection.models.length} {connection.models.length === 1 ? "model" : "models"}{!connection.ready ? " · Needs details" : ""}</span></button>}
+			{editing !== connection.id && <button type="button" disabled={editing !== null} onClick={() => { setEditing(connection.id); }} className="flex w-full items-center justify-between gap-3 rounded-sm px-1 py-1.5 text-left text-xs hover:bg-accent"><span className="truncate">{connection.name}</span><span className="shrink-0 text-muted-foreground">Custom · {connection.models.length} {connection.models.length === 1 ? "model" : "models"}{!connection.ready ? " · Needs details" : ""}</span></button>}
 			{editing === connection.id && <ConnectionEditor connection={connection} onCancel={() => setEditing(null)} onSaved={saved} />}
 		</div>)}
-		{editing === "new" ? <ConnectionEditor onCancel={() => setEditing(null)} onSaved={saved} /> : <button type="button" className={`${actionClass} self-start px-1 py-1.5`} disabled={loading || !!error || editing !== null} onClick={() => { setEditing("new"); setNotice(null); }}>+ Add connection</button>}
+		{editing === "new" ? <ConnectionEditor onCancel={() => setEditing(null)} onSaved={saved} /> : <button type="button" className={`${actionClass} self-start px-1 py-1.5`} disabled={loading || !!error || editing !== null} onClick={() => { setEditing("new"); }}>+ Add connection</button>}
 	</div>;
 }
