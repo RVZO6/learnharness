@@ -639,10 +639,11 @@ function SessionsSidebar() {
 
 	return (
 		<aside
-			className={cn("sidebar-motion shrink-0 overflow-hidden duration-200", open ? "w-72" : "w-0")}
+			className={cn("sidebar-motion relative shrink-0 overflow-hidden duration-200 after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:border-r", open ? "w-72" : "w-0")}
 			aria-hidden={!open}
 		>
-			<div className="flex h-full w-72 flex-col border-r bg-background">
+			{/* Keep the divider on the animated edge, not the clipped fixed-width panel. */}
+			<div className="flex h-full w-72 flex-col bg-background">
 				{/* LH wordmark — the owner's header; close toggle sits at the edge.
 				    Merged chrome (2026-09-17): in Electron this band is the
 				    window's drag surface and starts after the traffic lights
