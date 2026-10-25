@@ -11,6 +11,7 @@ import React from "react";
 (globalThis as Record<string, unknown>).React = React;
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MessageResponse } from "../components/ai-elements/message.tsx";
@@ -24,6 +25,11 @@ function render(md: string): string {
 }
 
 describe("md-blocks — code", () => {
+	it("inline code shares the dark code-block background", () => {
+		const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+		assert.match(css, /\[data-streamdown="inline-code"\],\s*\[data-streamdown="code-block"\]\s*\{\s*background: color-mix\(in oklab, var\(--background\) 86%, black\);\s*\}/);
+	});
+
 	it("inline code passes through with the house inline styling", () => {
 		const html = render("a `term` b");
 		assert.ok(html.includes('data-streamdown="inline-code"'), "inline code keeps the inline-code path");
