@@ -52,6 +52,7 @@ import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog"
 import { ArrowRightIcon, DumbbellIcon, WaypointsIcon } from "lucide-react";
 import type { PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
+import { dockScrollHeight } from "./dock-height.ts";
 import { SessionFind } from "@/components/session-find";
 import { SessionMessageNavigation } from "@/components/session-navigation";
 import { PracticeDock } from "@/components/practice-dock";
@@ -2007,24 +2008,36 @@ function DockOverlay({
 	// round 2): the scroller reserves symmetric gutters (scrollbar-gutter:
 	// stable both-edges), so inset the overlay's right edge by the gutter —
 	// zero on macOS overlay scrollbars, the real width on classic platforms.
-	// The same measure owns the QUESTION/PROBLEM HEIGHT CAP (owner round,
-	// 2026-10-05): the old fixed fractions (55dvh / 40vh) cut long problems
-	// off absurdly short — the cap is now the AVAILABLE COLUMN (the
-	// scroller already starts below the top bar) minus a 2rem breathing
-	// gap, carried as --dock-max-h for the docks' scroll areas.
+	// Bound the WHOLE dock to the visible column, not just its question area.
+	// Subtract confidence/thinking/submit controls, stats, and in-flow extras
+	// before assigning the scroll area's cap. Observe both sides so resizing,
+	// streamed content, and growing input fields cannot push its top offscreen.
 	const [sbInset, setSbInset] = useState(0);
-	const [dockMaxH, setDockMaxH] = useState<number | null>(null);
-	useEffect(() => {
+	useIsoLayoutEffect(() => {
 		const el = scrollRef.current;
-		if (!el) return;
+		const block = blockRef.current;
+		if (!el || !block) return;
+		const area = block.querySelector<HTMLElement>("[data-dock-scroll-area]");
 		const measure = () => {
 			setSbInset(Math.round((el.offsetWidth - el.clientWidth) / 2));
-			setDockMaxH(Math.max(el.clientHeight - 32, 160));
+			if (!area || !expanded) return; // preserve the last fitted cap while folded
+			const height = dockScrollHeight(el.clientHeight, naturalBlockHeight(), area.offsetHeight);
+			// Apply before the later height-morph layout effect reads its target.
+			// A state update here would animate the old oversized target first.
+			block.style.setProperty("--dock-max-h", String(height) + "px");
+			offer(naturalBlockHeight());
 		};
 		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(el);
+		observer.observe(block);
+		if (area) observer.observe(area);
 		window.addEventListener("resize", measure);
-		return () => window.removeEventListener("resize", measure);
-	}, [scrollRef]);
+		return () => {
+			observer.disconnect();
+			window.removeEventListener("resize", measure);
+		};
+	}, [scrollRef, pendingId, practice?.toolCallId, expanded]);
 
 	// GROWTH MUTE (owner round, 2026-10-05 — the generation churn): during a
 	// live turn the transcript content grows and stick-to-bottom chases it;
@@ -2053,9 +2066,9 @@ function DockOverlay({
 	// round 2): the overlay is a SIBLING of the scroller, so the browser's
 	// native scroll chaining stops at the overlay (the old in-flow dock
 	// chained for free). Internal scrollers — the question area, textarea
-	// overflow, the model menus — keep native scrolling, including their
-	// own edge chaining; only when nothing under the cursor can take the
-	// delta do we forward it to the transcript.
+	// overflow, the model menus — keep native scrolling. The question/problem
+	// reading area also contains gestures at its edges; only other exhausted
+	// areas forward wheel input to the transcript.
 	useEffect(() => {
 		const root = blockRef.current;
 		const el = scrollRef.current;
@@ -2067,6 +2080,10 @@ function DockOverlay({
 		const onWheel = (e: WheelEvent) => {
 			if (e.deltaY === 0) return;
 			for (let n = e.target as HTMLElement | null; n && n !== root; n = n.parentElement) {
+				// A question/problem's reading area owns the entire gesture,
+				// including its edges. Never forward its exhausted scroll to
+				// the transcript and unexpectedly fold or move the dock.
+				if (n.hasAttribute("data-dock-scroll-area")) return;
 				if (n instanceof HTMLElement && canScroll(n, e.deltaY)) return; // native
 			}
 			e.preventDefault();
@@ -2077,16 +2094,25 @@ function DockOverlay({
 	}, [scrollRef]);
 
 	// ── The reserve: the spacer's height, reported upward ──
-	// Grows immediately (typing, new variants). NEVER drops while a question
-	// is open — a shrinking reserved tail is scroll geometry and the browser
-	// clamp would pin a nearby learner to the bottom (the old oscillation).
-	// In chat mode drops apply (the composer's typing shrink is today's
-	// harmless in-flow behavior; nothing auto-expands there).
+	// Hold the last expanded reserve during folding to avoid scroll jumps.
+	// While expanded, let real geometry corrections shrink it: retaining an
+	// obsolete oversized height leaves a blank tail below the transcript.
 	const reserveRef = useRef(0);
 	const blockRef = useRef<HTMLDivElement>(null);
+	const naturalBlockHeight = () => {
+		const block = blockRef.current;
+		const shell = shellRef.current;
+		const content = contentRef.current;
+		if (!block) return 0;
+		if (!shell || !content) return block.offsetHeight;
+		// Ignore an in-flight shell height animation. The inner content has
+		// its final layout even while the shell animates from the folded bar.
+		return block.offsetHeight - shell.offsetHeight + content.offsetHeight + (shell.offsetHeight - shell.clientHeight);
+	};
 	const offer = (blockH: number) => {
 		const next = blockH + GRADIENT_H;
-		if (next <= reserveRef.current + 0.5 && pendingRef.current) return; // fold immunity
+		if (Math.abs(next - reserveRef.current) <= 0.5) return;
+		if (next < reserveRef.current && pendingRef.current && !expandedRef.current) return; // fold immunity only
 		// Reserve GROWTH is the phantom-scroll SOURCE (flicker round,
 		// 2026-09-26): the spacer's height lands in this commit, the smooth
 		// catch-up lags it by the growth amount, and the position machine
@@ -2199,8 +2225,7 @@ function DockOverlay({
 	// Only ever called with NATURAL heights — never the animated mid-morph
 	// value (the iso effect's getAnimations guard wraps every call).
 	const measureBlock = () => {
-		const b = blockRef.current;
-		if (b) offer(b.getBoundingClientRect().height);
+		if (blockRef.current) offer(naturalBlockHeight());
 	};
 
 	const mode = pending
@@ -2267,7 +2292,7 @@ function DockOverlay({
 	return (
 		<div className="pointer-events-none absolute inset-x-0 bottom-0" style={{ right: sbInset }}>
 			<div className="h-24 bg-gradient-to-t from-background via-background/85 to-transparent" />
-			<div ref={blockRef} className="relative bg-background pb-5" style={{ "--dock-max-h": dockMaxH ? `${dockMaxH}px` : undefined } as React.CSSProperties}>
+			<div ref={blockRef} className="relative bg-background pb-5">
 				<div className={DOCK}>
 					{setupCta}
 					{/* The queued-steer indicator (owner spec 2026-10-03): quiet
