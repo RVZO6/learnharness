@@ -28,21 +28,27 @@ afterEach(async () => {
 	host?.remove(); root = undefined; host = undefined; globalThis.fetch = originalFetch;
 });
 
-test("Add and manual setup use the same heading and back-link spacing", async () => {
+test("Add opens the manual form directly; Back and Cancel return to the list", async () => {
 	await mount();
-	const add = byTest("connections-add-view");
-	const spacing = add.className;
-	const backSpacing = add.querySelector("button")!.className;
-	await click(byTest("connections-manual"));
 	const manual = byTest("connections-manual-view");
-	assert.equal(manual.className, spacing);
-	assert.equal(manual.querySelector("button")!.className, backSpacing);
-	await click(manual.querySelector("button")!);
-	assert.equal(byTest("connections-add-view").className, spacing);
+	assert(manual);
+	assert.equal(manual.querySelector("p")!.textContent, "Add a connection");
+	assert(byTest("manual-command"));
+	assert(button("Program on this Mac"));
+	assert(button("Online"));
+	assert(!document.querySelector("textarea"));
+	assert(!document.querySelector('[data-testid="connections-add-view"]'));
+	assert(!document.querySelector('[data-testid="connections-review"]'));
+	await click(button("← Connections"));
+	assert(byTest("connections-list"));
+	await click(byTest("connections-add"));
+	assert(byTest("connections-manual-view"));
+	await click(button("Cancel"));
+	assert(byTest("connections-list"));
 });
 
 test("manual variants retain shared layout slots and hide inactive controls from interaction", async () => {
-	await mount(); await click(byTest("connections-manual"));
+	await mount();
 	const command = byTest("manual-command"), url = byTest("manual-url");
 	const name = document.querySelector('[aria-label="Connection name"]');
 	const connect = byTest("manual-connect");
