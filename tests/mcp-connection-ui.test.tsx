@@ -42,10 +42,12 @@ test("Add opens the manual form directly; Back and Cancel return to the list", a
 	assert(!document.querySelector('[data-testid="connections-review"]'));
 	await click(button("← Connections"));
 	assert(byTest("connections-list"));
+	assert(!byTest("connections-manual-view"));
 	await click(byTest("connections-add"));
 	assert(byTest("connections-manual-view"));
 	await click(button("Cancel"));
 	assert(byTest("connections-list"));
+	assert(!byTest("connections-manual-view"));
 });
 
 test("manual variants retain shared layout slots and hide inactive controls from interaction", async () => {
@@ -88,4 +90,32 @@ test("Add connection aligns with connection labels and has a gap only for popula
 	assert(byTest("connections-add").classList.contains("mt-2"));
 	assert(byTest("connections-add").classList.contains("px-1"));
 	assert(byTest("connection-canvas").firstElementChild!.classList.contains("px-1"));
+});
+
+
+test("inline Add keeps existing connection rows and uses the Add action as the Back anchor", async () => {
+	await mount([{ name: "canvas", state: "connected", transport: "program", summary: "", tools: [], config: { command: "canvas-mcp-server" }, fields: [], details: "" }], false);
+	const row = byTest("connection-canvas");
+	const anchor = byTest("connections-add");
+	const anchorClass = anchor.className;
+	await click(anchor);
+	assert.equal(byTest("connection-canvas"), row, "existing connection rows must stay mounted");
+	assert.equal(byTest("connections-add"), anchor, "Back must reuse the Add button node");
+	assert.equal(anchor.className, anchorClass);
+	assert.equal(anchor.textContent, "← Connections");
+	assert.equal(anchor.getAttribute("aria-expanded"), "true");
+	assert.equal(anchor.nextElementSibling?.id, "connection-add-form");
+	assert(byTest("connections-manual-view"));
+	assert.equal([...document.querySelectorAll("button")].filter((el) => el.textContent === "← Connections").length, 1);
+	await click(anchor);
+	assert.equal(byTest("connection-canvas"), row);
+	assert.equal(byTest("connections-add"), anchor);
+	assert.equal(anchor.textContent, "+ Add a connection");
+	assert.equal(anchor.getAttribute("aria-expanded"), "false");
+	assert(!document.querySelector("#connection-add-form"));
+	await click(anchor);
+	await click(button("Cancel"));
+	assert.equal(byTest("connection-canvas"), row);
+	assert.equal(byTest("connections-add"), anchor);
+	assert(!document.querySelector("#connection-add-form"));
 });

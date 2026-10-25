@@ -97,19 +97,6 @@ export function ConnectionsSection() {
 			return rest;
 		});
 
-	if (view.kind === "add") {
-		return (
-			<ManualView
-				taken={new Set((servers ?? []).map((s) => s.name))}
-				onBack={() => setView({ kind: "list" })}
-				onCancel={() => setView({ kind: "list" })}
-				onAdded={(server) => {
-					replace(server);
-					setView({ kind: "detail", name: server.name });
-				}}
-			/>
-		);
-	}
 	if (view.kind === "detail") {
 		const server = servers?.find((s) => s.name === view.name);
 		if (server) {
@@ -144,9 +131,21 @@ export function ConnectionsSection() {
 					/>
 				))}
 			</div>
-			<button type="button" onClick={() => setView({ kind: "add" })} data-testid="connections-add" className={`block px-1 text-xs text-foreground underline-offset-2 hover:underline${servers?.length ? " mt-2" : ""}`}>
-				+ Add a connection
+			<button type="button" onClick={() => setView({ kind: view.kind === "add" ? "list" : "add" })} aria-expanded={view.kind === "add"} aria-controls="connection-add-form" data-testid="connections-add" className={`block px-1 text-xs text-foreground underline-offset-2 hover:underline${servers?.length ? " mt-2" : ""}`}>
+				{view.kind === "add" ? "← Connections" : "+ Add a connection"}
 			</button>
+			{view.kind === "add" && (
+				<div id="connection-add-form" className="mt-2 px-1">
+					<ManualView
+						taken={new Set((servers ?? []).map((s) => s.name))}
+						onCancel={() => setView({ kind: "list" })}
+						onAdded={(server) => {
+							replace(server);
+							setView({ kind: "detail", name: server.name });
+						}}
+					/>
+				</div>
+			)}
 		</div>
 	);
 }
@@ -251,12 +250,10 @@ function ManualSlot({ kind, program, online }: { kind: ManualKind; program: Reac
 
 function ManualView({
 	taken,
-	onBack,
 	onCancel,
 	onAdded,
 }: {
 	taken: Set<string>;
-	onBack: () => void;
 	onCancel: () => void;
 	onAdded: (s: ServerStatus) => void;
 }) {
@@ -323,7 +320,6 @@ function ManualView({
 
 	return (
 		<div className={CONNECTION_VIEW} data-testid="connections-manual-view">
-			<BackLink onClick={onBack} label="Connections" />
 			<p className="font-prose text-(length:--lh-prose-size)">Add a connection</p>
 			<div className="flex gap-1">
 				{tab("program", "Program on this Mac")}
