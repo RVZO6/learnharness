@@ -12,6 +12,9 @@ import type { BackgroundModelRole, ModelSlotName } from "../settings.ts";
  *  pi-ai's catalog. Costs are USD per 1M tokens (the same catalog, the same
  *  units as Pi's server-side pricing calculator). */
 export interface ModelCatalogEntry {
+	/** Custom endpoint identity; separate from the built-in provider roster. */
+	connectionName?: string;
+	pricingKnown?: boolean;
 	id: string;
 	name: string;
 	provider: string;

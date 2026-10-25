@@ -56,3 +56,5 @@ export {
 	type McpToolStatus,
 	type McpServerPatch,
 } from "./mcp.ts";
+
+export * from "./custom-connections.ts";

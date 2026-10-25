@@ -39,6 +39,9 @@
  * today's behavior, byte-for-byte.
  */
 
+import { customConnections } from "./custom-connections.ts";
+import { isCustomConnection } from "../core/custom-connections.ts";
+
 import {
 	AUTH_KEYS,
 	AUTH_PROVIDER_KEYS,
@@ -202,6 +205,7 @@ export function keyValue(id: string): string | undefined {
  * no key at all: nothing to gate, present by definition. */
 export function providerKeyPresent(provider: string): boolean {
 	if (isSubscriptionProvider(provider)) return subscriptionConnected(provider);
+	if (isCustomConnection(provider)) return customConnections().some((c) => c.id === provider && c.keyPresent);
 	const info = AUTH_PROVIDER_KEYS.find((p) => p.id === provider);
 	return info ? keyValue(info.envVar) !== undefined : true;
 }

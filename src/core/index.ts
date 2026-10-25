@@ -82,3 +82,5 @@ export * from "./session-markdown.ts";
 // MCP connection setup (Settings → Connections + src/server/mcp.ts): paste
 // parsing, setup fields, and the plain-language tool view. Pure, browser-safe.
 export * from "./mcp-setup.ts";
+
+export * from "./custom-connections.ts";
