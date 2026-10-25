@@ -37,7 +37,6 @@ export async function saveAndDiscoverCustomConnection(body: unknown, id?: string
 	const connectionId = saveCustomConnection(body, id);
 	const saved = customConnectionStore.read().find((c) => c.id === connectionId)!;
 	const { baseUrl, models } = saved;
-	let discoveryError: string | undefined;
 	try {
 		const discovered = await discoverCustomConnection({ id: connectionId, baseUrl });
 		// Match exact served IDs. Manual values take precedence; discovery fills gaps.
@@ -47,10 +46,10 @@ export async function saveAndDiscoverCustomConnection(body: unknown, id?: string
 		const current = customConnectionStore.read().find((c) => c.id === connectionId);
 		// Do not resurrect a deleted connection or overwrite a concurrent edit.
 		if (current && JSON.stringify(current) === JSON.stringify(saved)) customConnectionStore.save({ ...saved, models: validateCustomModelDrafts([...merged.values()].slice(0, 500)) });
-	} catch (error) {
-		discoveryError = error instanceof CustomConnectionInputError ? error.message : "Models could not be loaded.";
+	} catch {
+		// Discovery is optional. A successful save stays successful without a warning.
 	}
-	return { ok: true, ...(discoveryError ? { discoveryError } : {}) };
+	return { ok: true };
 }
 export function deleteCustomConnection(id: string): void {
 	if (!isCustomConnection(id)) throw new CustomConnectionInputError("Invalid connection ID.");

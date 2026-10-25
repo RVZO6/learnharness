@@ -32,6 +32,8 @@ export function customBaseUrl(value: unknown): string {
 	let url: URL;
 	try { url = new URL(value.trim()); } catch { throw new Error("Enter a valid base URL."); }
 	if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error("Use an HTTP or HTTPS base URL without credentials, a query, or a fragment.");
+	// A bare host names the server, not the OpenAI-compatible API root.
+	if (url.pathname === "/") url.pathname = "/v1";
 	return url.href.replace(/\/+$/, "");
 }
 export function validateCustomModels(value: unknown): CustomModel[] {

@@ -51,7 +51,9 @@ test("rich Codex catalog populates limits, modalities, and exact supported level
 });
 
 test("custom base URLs reject credentials, unsupported schemes, and query strings", () => {
+	for (const value of ["https://example.test", "https://example.test/", "https://example.test/v1", "https://example.test/v1/"]) assert.equal(customBaseUrl(value), "https://example.test/v1");
 	assert.equal(customBaseUrl("https://example.test/api/v1/"), "https://example.test/api/v1");
+	assert.equal(customBaseUrl("https://example.test/custom/api/"), "https://example.test/custom/api");
 	for (const value of ["file:///tmp/example", "https://key@example.test/v1", "https://example.test/v1?key=secret", "bad-url"]) assert.throws(() => customBaseUrl(value));
 });
 
@@ -193,10 +195,11 @@ test("Save discovers models without a key; keyless inference sends no Authorizat
 	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 	try {
 		const baseUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}/v1`;
-		const reply = await saveAndDiscoverCustomConnection({ name: "Keyless", baseUrl, apiKey: "", models: [] });
+		const reply = await saveAndDiscoverCustomConnection({ name: "Keyless", baseUrl: baseUrl.replace(/\/v1$/, ""), apiKey: "", models: [] });
 		assert.deepEqual(reply, { ok: true });
 		const info = customConnections().find((c) => c.name === "Keyless")!;
 		assert.equal(info.keyPresent, false);
+		assert.equal(info.baseUrl, baseUrl, "bare server URLs must normalize before discovery and inference");
 		assert.equal(info.ready, true);
 		assert.equal(providerKeyPresent(info.id), true);
 		assert.equal(modelCatalog().providers.find((p) => p.id === info.id)?.keyPresent, true);
@@ -224,7 +227,7 @@ test("Save discovers models without a key; keyless inference sends no Authorizat
 		mode = "failure";
 		const failure = await saveAndDiscoverCustomConnection({ name: "Failed discovery", baseUrl, models: [] });
 		assert.equal(failure.ok, true);
-		assert.match(failure.discoveryError!, /401/);
+		assert.deepEqual(failure, { ok: true }, "optional discovery failure must not produce a save warning");
 		const failed = customConnections().find((c) => c.name === "Failed discovery")!;
 		assert.deepEqual(failed.models, []);
 		assert.equal(failed.ready, false);
