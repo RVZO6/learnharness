@@ -17,11 +17,11 @@ let host: HTMLDivElement | undefined;
 const byTest = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`)!;
 const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((el) => el.textContent === text)!;
 async function click(element: HTMLElement) { assert(element); await act(async () => element.click()); }
-async function mount() {
-	globalThis.fetch = async () => Response.json({ servers: [] });
+async function mount(servers: unknown[] = [], openAdd = true) {
+	globalThis.fetch = async () => Response.json({ servers });
 	host = document.createElement("div"); document.body.append(host); root = createRoot(host);
 	await act(async () => root!.render(<ConnectionsSection />));
-	await click(byTest("connections-add"));
+	if (openAdd) await click(byTest("connections-add"));
 }
 afterEach(async () => {
 	if (root) await act(async () => root!.unmount());
@@ -75,4 +75,17 @@ test("manual variants retain shared layout slots and hide inactive controls from
 	await click(button("Program on this Mac"));
 	assert(!program.hasAttribute("inert"));
 	assert(online.hasAttribute("inert"));
+});
+
+
+test("Add connection aligns with connection labels and has a gap only for populated lists", async () => {
+	await mount([], false);
+	assert(byTest("connections-add").classList.contains("px-1"));
+	assert(!byTest("connections-add").classList.contains("mt-2"));
+	await act(async () => root!.unmount());
+	host?.remove(); root = undefined; host = undefined;
+	await mount([{ name: "canvas", state: "connected", transport: "program", summary: "", tools: [], config: { command: "canvas-mcp-server" }, fields: [], details: "" }], false);
+	assert(byTest("connections-add").classList.contains("mt-2"));
+	assert(byTest("connections-add").classList.contains("px-1"));
+	assert(byTest("connection-canvas").firstElementChild!.classList.contains("px-1"));
 });
