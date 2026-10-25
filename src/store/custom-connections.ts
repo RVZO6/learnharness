@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { PATHS } from "../../config.ts";
-import { customBaseUrl, isCustomConnection, validateCustomModels, type CustomConnection } from "../core/custom-connections.ts";
+import { customBaseUrl, isCustomConnection, validateCustomModelDrafts, type CustomConnection } from "../core/custom-connections.ts";
 
 export function createCustomConnectionStore(file: string) {
 	function read(): CustomConnection[] {
@@ -12,7 +12,7 @@ export function createCustomConnectionStore(file: string) {
 		if (!Array.isArray(raw)) throw new Error("Invalid custom connection store.");
 		return raw.map((entry) => {
 			if (!entry || !isCustomConnection(entry.id) || typeof entry.name !== "string" || !entry.name.trim() || typeof entry.apiKey !== "string") throw new Error("Invalid custom connection store.");
-			return { id: entry.id, name: entry.name, baseUrl: customBaseUrl(entry.baseUrl), apiKey: entry.apiKey, models: validateCustomModels(entry.models) };
+			return { id: entry.id, name: entry.name, baseUrl: customBaseUrl(entry.baseUrl), apiKey: entry.apiKey, models: validateCustomModelDrafts(entry.models) };
 		});
 	}
 	function write(entries: CustomConnection[]) {

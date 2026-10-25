@@ -83,6 +83,6 @@ export interface CatalogProvider {
 	id: string;
 	/** The env var whose presence federates this provider in. */
 	envVar: string;
-	/** Whether that var is currently present (env or auth file). */
+	/** Whether auth is configured. Keyless custom endpoints count when they have usable models. */
 	keyPresent: boolean;
 }

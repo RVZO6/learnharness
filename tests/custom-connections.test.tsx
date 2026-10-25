@@ -8,13 +8,13 @@ import http from "node:http";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CustomConnections } from "../components/settings/custom-connections.tsx";
 import { ModelMenuList } from "../components/settings/model-menu.tsx";
-import { customBaseUrl, discoverCustomModels, validateCustomModels } from "../src/core/custom-connections.ts";
+import { customBaseUrl, discoverCustomModels, validateCustomModels, validateCustomModelDrafts, usableCustomModels } from "../src/core/custom-connections.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lh-custom-connections-"));
 process.env.LH_DATA_DIR = dir;
 process.env.LH_IGNORE_ENV_KEYS = "1";
 const { createCustomConnectionStore } = await import("../src/store/custom-connections.ts");
-const { customConnections, saveCustomConnection, deleteCustomConnection, discoverCustomConnection } = await import("../src/server/custom-connections.ts");
+const { customConnections, saveCustomConnection, deleteCustomConnection, discoverCustomConnection, saveAndDiscoverCustomConnection } = await import("../src/server/custom-connections.ts");
 const { piEngineForSpec, piModels } = await import("../src/agent/models.ts");
 const { modelCatalog, validateChatSettings, catalogContextLimits } = await import("../src/server/model-catalog.ts");
 const { callCost } = await import("../src/server/pricing.ts");
@@ -153,7 +153,84 @@ test("saved connections feed the real catalog, settings validation, streaming, a
 
 test("custom connections remain separate and have short neutral copy", () => {
 	const html = renderToStaticMarkup(<CustomConnections />);
-	assert.match(html, /Connect your own proxy or server/);
+	assert.doesNotMatch(html, /Connect your own proxy or server|Tool calling required|Pricing unknown|Load models/);
 	assert.match(html, /Add connection/);
 	assert.doesNotMatch(html, /CLIProxyAPI|ProviderMenuList/);
+});
+
+test("incomplete model drafts persist without becoming runnable or acquiring defaults", () => {
+	assert.deepEqual(validateCustomModelDrafts([]), []);
+	assert.deepEqual(validateCustomModelDrafts([{ id: "manual" }]), [{ id: "manual" }]);
+	assert.deepEqual(usableCustomModels([{ id: "manual" }, complete]), [complete]);
+	assert.throws(() => validateCustomModelDrafts([{ id: "invalid", contextWindow: 0 }]), /limits/);
+	assert.throws(() => validateCustomModelDrafts([{ id: "invalid", imageInput: "false" }]), /image/);
+	const id = saveCustomConnection({ name: "Draft only", baseUrl: "https://example.invalid/v1", models: [{ id: "manual" }] });
+	const info = customConnections().find((c) => c.id === id)!;
+	assert.equal(info.ready, false);
+	assert.equal(info.keyPresent, false);
+	assert.deepEqual(info.models, [{ id: "manual" }]);
+	assert.equal(providerKeyPresent(id), false);
+	assert.equal(modelCatalog().models.some((m) => m.provider === id), false);
+	assert.throws(() => piEngineForSpec({ provider: id, id: "manual" }), /no model/);
+	deleteCustomConnection(id);
+});
+
+test("Save discovers models without a key; keyless inference sends no Authorization header", async () => {
+	let mode = "rich";
+	const requests: { url: string; auth: string | undefined }[] = [];
+	const server = http.createServer(async (req, res) => {
+		requests.push({ url: req.url!, auth: req.headers.authorization });
+		if (req.url?.includes("/models")) {
+			res.setHeader("content-type", "application/json");
+			if (mode === "failure") { res.writeHead(401); res.end('{}'); return; }
+			if (mode === "plain") { res.end(JSON.stringify({ data: [{ id: "incomplete" }] })); return; }
+			res.end(JSON.stringify({ models: [{ slug: "keyless-model", context_window: 64000, max_tokens: 4096, input_modalities: ["text"], supported_reasoning_levels: [] }] })); return;
+		}
+		for await (const _chunk of req) { /* drain request */ }
+		res.writeHead(200, { "content-type": "text/event-stream" });
+		res.end('data: {"id":"test","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]}\n\ndata: {"id":"test","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
+	});
+	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+	try {
+		const baseUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}/v1`;
+		const reply = await saveAndDiscoverCustomConnection({ name: "Keyless", baseUrl, apiKey: "", models: [] });
+		assert.deepEqual(reply, { ok: true });
+		const info = customConnections().find((c) => c.name === "Keyless")!;
+		assert.equal(info.keyPresent, false);
+		assert.equal(info.ready, true);
+		assert.equal(providerKeyPresent(info.id), true);
+		assert.equal(modelCatalog().providers.find((p) => p.id === info.id)?.keyPresent, true);
+		const engine = piEngineForSpec({ provider: info.id, id: "keyless-model" });
+		const result = await engine.streamFn(engine.model, normalizeContext({ messages: [{ role: "user", content: "Hi", timestamp: Date.now() }] }), {}).result();
+		assert.equal(result.stopReason, "stop", JSON.stringify(result));
+		assert.deepEqual(requests, [{ url: "/v1/models?client_version=cpa", auth: undefined }, { url: "/v1/chat/completions", auth: undefined }]);
+		// A saved key can be retained, replaced, and explicitly removed.
+		saveCustomConnection({ name: "Keyless", baseUrl, apiKey: "test-only", models: info.models }, info.id);
+		saveCustomConnection({ name: "Keyless", baseUrl, models: info.models }, info.id);
+		assert.equal(customConnections().find((c) => c.id === info.id)?.keyPresent, true);
+		await saveAndDiscoverCustomConnection({ name: "Keyless", baseUrl, apiKey: "", models: info.models }, info.id);
+		assert.equal(customConnections().find((c) => c.id === info.id)?.keyPresent, false);
+		assert.equal(requests.at(-1)?.auth, undefined);
+		deleteCustomConnection(info.id);
+
+		mode = "plain";
+		await saveAndDiscoverCustomConnection({ name: "Incomplete", baseUrl, models: [] });
+		const partial = customConnections().find((c) => c.name === "Incomplete")!;
+		assert.equal(partial.ready, false);
+		assert.equal(partial.models[0]?.id, "incomplete");
+		assert.equal(partial.models[0]?.contextWindow, undefined);
+		deleteCustomConnection(partial.id);
+
+		mode = "failure";
+		const failure = await saveAndDiscoverCustomConnection({ name: "Failed discovery", baseUrl, models: [] });
+		assert.equal(failure.ok, true);
+		assert.match(failure.discoveryError!, /401/);
+		const failed = customConnections().find((c) => c.name === "Failed discovery")!;
+		assert.deepEqual(failed.models, []);
+		assert.equal(failed.ready, false);
+		// Failed discovery does not discard manually configured models.
+		await saveAndDiscoverCustomConnection({ name: failed.name, baseUrl, models: [complete] }, failed.id);
+		assert.equal(customConnections().find((c) => c.id === failed.id)?.ready, true);
+		deleteCustomConnection(failed.id);
+	} finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });

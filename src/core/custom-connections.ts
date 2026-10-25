@@ -22,9 +22,9 @@ export interface CustomConnection {
 	name: string;
 	baseUrl: string;
 	apiKey: string;
-	models: CustomModel[];
+	models: CustomModelDraft[];
 }
-export type CustomConnectionInfo = Omit<CustomConnection, "apiKey"> & { keyPresent: boolean };
+export type CustomConnectionInfo = Omit<CustomConnection, "apiKey"> & { keyPresent: boolean; ready: boolean };
 export function isCustomConnection(id: string): boolean { return /^custom-[a-f0-9-]{36}$/.test(id); }
 
 export function customBaseUrl(value: unknown): string {
@@ -35,7 +35,19 @@ export function customBaseUrl(value: unknown): string {
 	return url.href.replace(/\/+$/, "");
 }
 export function validateCustomModels(value: unknown): CustomModel[] {
-	if (!Array.isArray(value) || value.length === 0 || value.length > 500) throw new Error("Add between 1 and 500 models.");
+	const drafts = validateCustomModelDrafts(value);
+	if (!drafts.length) throw new Error("Add between 1 and 500 models.");
+	return drafts.map((m) => {
+		if (m.contextWindow === undefined || m.maxTokens === undefined) throw new Error(`${m.id}: enter valid context and output limits.`);
+		if (m.imageInput === undefined) throw new Error(`${m.id}: specify image support.`);
+		if (!m.supportedLevels?.length) throw new Error(`${m.id}: specify supported reasoning levels, or off.`);
+		return { ...m, contextWindow: m.contextWindow, maxTokens: m.maxTokens, imageInput: m.imageInput, supportedLevels: m.supportedLevels };
+	});
+}
+
+/** Saved connections may contain incomplete drafts; only complete models reach the runtime. */
+export function validateCustomModelDrafts(value: unknown): CustomModelDraft[] {
+	if (!Array.isArray(value) || value.length > 500) throw new Error("Use no more than 500 models.");
 	const ids = new Set<string>();
 	return value.map((raw) => {
 		if (!raw || typeof raw !== "object") throw new Error("Invalid model details.");
@@ -44,11 +56,20 @@ export function validateCustomModels(value: unknown): CustomModel[] {
 		const id = m.id.trim();
 		if (ids.has(id)) throw new Error(`Duplicate model ID: ${id}`);
 		ids.add(id);
-		if (!Number.isSafeInteger(m.contextWindow) || m.contextWindow! <= 0 || !Number.isSafeInteger(m.maxTokens) || m.maxTokens! <= 0 || m.maxTokens! > m.contextWindow!) throw new Error(`${id}: enter valid context and output limits.`);
-		if (typeof m.imageInput !== "boolean") throw new Error(`${id}: specify image support.`);
-		if (!Array.isArray(m.supportedLevels) || !m.supportedLevels.length || m.supportedLevels.some((l) => !CUSTOM_THINKING_LEVELS.includes(l))) throw new Error(`${id}: specify supported reasoning levels, or off.`);
-		return { id, ...(typeof m.name === "string" && m.name.trim() ? { name: m.name.trim().slice(0, 256) } : {}), contextWindow: m.contextWindow!, maxTokens: m.maxTokens!, imageInput: m.imageInput, supportedLevels: [...new Set(m.supportedLevels)] };
+		for (const limit of [m.contextWindow, m.maxTokens]) if (limit !== undefined && (!Number.isSafeInteger(limit) || limit <= 0)) throw new Error(`${id}: enter valid token limits.`);
+		if (m.contextWindow !== undefined && m.maxTokens !== undefined && m.maxTokens > m.contextWindow) throw new Error(`${id}: enter valid context and output limits.`);
+		if (m.imageInput !== undefined && typeof m.imageInput !== "boolean") throw new Error(`${id}: invalid image support.`);
+		if (m.supportedLevels !== undefined && (!Array.isArray(m.supportedLevels) || m.supportedLevels.some((l) => !CUSTOM_THINKING_LEVELS.includes(l)))) throw new Error(`${id}: invalid reasoning levels.`);
+		return { id, ...(typeof m.name === "string" && m.name.trim() ? { name: m.name.trim().slice(0, 256) } : {}),
+			...(m.contextWindow !== undefined ? { contextWindow: m.contextWindow } : {}),
+			...(m.maxTokens !== undefined ? { maxTokens: m.maxTokens } : {}),
+			...(m.imageInput !== undefined ? { imageInput: m.imageInput } : {}),
+			...(m.supportedLevels !== undefined ? { supportedLevels: [...new Set(m.supportedLevels)] } : {}),
+		};
 	});
+}
+export function usableCustomModels(models: readonly CustomModelDraft[]): CustomModel[] {
+	return models.flatMap((m) => { try { return validateCustomModels([m]); } catch { return []; } });
 }
 
 /** Use server-published metadata, including Codex-compatible catalogs. No local capability defaults. */
