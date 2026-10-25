@@ -9,23 +9,19 @@ import {
 	humanizeToolName,
 	parsePastedSetup,
 	safeServerName,
-	setupFields,
 	splitCommandLine,
 	type McpServerConfig,
-	type ParsedServer,
 } from "@/src/core";
 import { SettingsGroup, Toggle } from "./controls";
 
 /**
  * Settings → Connections: the learner's MCP servers (src/server/mcp.ts via
- * app/api/mcp). Written for people who have never heard of MCP: one paste
- * box takes whatever an app's setup instructions give (a link, setup code,
- * or a command), a review step asks only for what is missing, and each
- * tool reads as a plain "ability" with a reads / changes-things tag.
+ * app/api/mcp). A manual setup
+ * form lets the learner enter a local command or online connection.
+ * Each tool reads as a plain "ability" with a reads / changes-things tag.
  * Technical detail (the stored entry, the server's output) stays folded.
  *
- * Five views in one section: the list, add (paste), manual setup, review,
- * and one connection.
+ * Three views: the list, manual setup, and one connection.
  */
 
 interface ToolStatus {
@@ -49,12 +45,7 @@ interface ServerStatus {
 	fields: { where: "env" | "header"; key: string; label: string; secret: boolean; value: string }[];
 }
 
-type View =
-	| { kind: "list" }
-	| { kind: "add" }
-	| { kind: "manual" }
-	| { kind: "review"; parsed: ParsedServer }
-	| { kind: "detail"; name: string };
+type View = { kind: "list" } | { kind: "add" } | { kind: "detail"; name: string };
 
 const LINK = "text-xs text-muted-foreground/70 underline-offset-2 hover:text-foreground hover:underline disabled:opacity-40";
 const LINK_SMALL = "text-[10px] text-muted-foreground/60 underline-offset-2 hover:text-foreground hover:underline";
@@ -108,32 +99,9 @@ export function ConnectionsSection() {
 
 	if (view.kind === "add") {
 		return (
-			<AddView
-				onBack={() => setView({ kind: "list" })}
-				onParsed={(parsed) => setView({ kind: "review", parsed })}
-				onManual={() => setView({ kind: "manual" })}
-			/>
-		);
-	}
-	if (view.kind === "manual") {
-		return (
 			<ManualView
 				taken={new Set((servers ?? []).map((s) => s.name))}
-				onBack={() => setView({ kind: "add" })}
-				onCancel={() => setView({ kind: "list" })}
-				onAdded={(server) => {
-					replace(server);
-					setView({ kind: "detail", name: server.name });
-				}}
-			/>
-		);
-	}
-	if (view.kind === "review") {
-		return (
-			<ReviewView
-				parsed={view.parsed}
-				taken={new Set((servers ?? []).map((s) => s.name))}
-				onBack={() => setView({ kind: "add" })}
+				onBack={() => setView({ kind: "list" })}
 				onCancel={() => setView({ kind: "list" })}
 				onAdded={(server) => {
 					replace(server);
@@ -246,165 +214,6 @@ function BackLink({ onClick, label }: { onClick: () => void; label: string }) {
 	);
 }
 
-function AddView({ onBack, onParsed, onManual }: { onBack: () => void; onParsed: (p: ParsedServer) => void; onManual: () => void }) {
-	const [text, setText] = useState("");
-	const result = useMemo(() => parsePastedSetup(text), [text]);
-	const servers = result.kind === "link" || result.kind === "code" || result.kind === "command" ? result.servers : [];
-	const found =
-		result.kind === "link"
-			? "a link to an online connection"
-			: result.kind === "command"
-				? "a command that starts a program on this Mac"
-				: result.kind === "code"
-					? servers.length === 1
-						? `setup code for one connection: ${servers[0]!.name}`
-						: `setup code for ${servers.length} connections`
-					: "";
-	return (
-		<div className={CONNECTION_VIEW} data-testid="connections-add-view">
-			<BackLink onClick={onBack} label="Connections" />
-			<p className="font-prose text-(length:--lh-prose-size)">Add a connection</p>
-			<p className="text-xs text-muted-foreground">Paste the setup from the app’s MCP instructions: a link, setup code, or a command.</p>
-			<textarea
-				value={text}
-				onChange={(e) => setText(e.target.value)}
-				placeholder="Paste the link, setup code, or command from the app’s instructions"
-				aria-label="Connection setup"
-				data-testid="connections-paste"
-				autoFocus
-				spellCheck={false}
-				className="h-28 w-full resize-none rounded-sm border border-border bg-background p-2 font-mono text-xs leading-relaxed text-foreground outline-none placeholder:font-prose placeholder:text-sm placeholder:text-muted-foreground/60 focus:border-muted-foreground/50"
-			/>
-			<div className="min-h-5 text-xs" data-testid="connections-detect">
-				{result.kind === "unknown" && <span className="text-muted-foreground">{result.reason}</span>}
-				{servers.length === 1 && (
-					<span className="text-muted-foreground">
-						Found {found}.{" "}
-						<button type="button" onClick={() => onParsed(servers[0]!)} className="text-foreground underline-offset-2 hover:underline">
-							Continue →
-						</button>
-					</span>
-				)}
-				{servers.length > 1 && (
-					<span className="text-muted-foreground">
-						Found {found}. Add one at a time:{" "}
-						{servers.map((s) => (
-							<button key={s.name} type="button" onClick={() => onParsed(s)} className="mr-2 text-foreground underline-offset-2 hover:underline">
-								{s.name} →
-							</button>
-						))}
-					</span>
-				)}
-			</div>
-			<button type="button" onClick={onManual} data-testid="connections-manual" className={`self-start ${LINK}`}>
-				Set up manually instead
-			</button>
-		</div>
-	);
-}
-
-function ReviewView({
-	parsed,
-	taken,
-	onBack,
-	onCancel,
-	onAdded,
-}: {
-	parsed: ParsedServer;
-	taken: Set<string>;
-	onBack: () => void;
-	onCancel: () => void;
-	onAdded: (s: ServerStatus) => void;
-}) {
-	const fields = useMemo(() => setupFields(parsed.config), [parsed]);
-	const [name, setName] = useState(() => {
-		let n = parsed.name;
-		for (let i = 2; taken.has(n); i++) n = `${parsed.name}-${i}`;
-		return n;
-	});
-	const [values, setValues] = useState<Record<string, string>>(() =>
-		Object.fromEntries(fields.map((f) => [f.key, f.needsValue ? "" : f.where === "header" && /^authorization$/i.test(f.key) ? f.value.replace(/^Bearer\s+/i, "") : f.value])),
-	);
-	const [busy, setBusy] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const missing = fields.filter((f) => !values[f.key]?.trim()).length;
-
-	async function connect() {
-		setBusy(true);
-		setError(null);
-		try {
-			const config = applySetupFields(parsed.config, values);
-			onAdded((await api<{ server: ServerStatus }>("/api/mcp", { method: "POST", body: JSON.stringify({ name, config }) })).server);
-		} catch (e) {
-			setError(e instanceof Error ? e.message : "Failed");
-			setBusy(false);
-		}
-	}
-
-	return (
-		<div className={CONNECTION_VIEW} data-testid="connections-review">
-			<BackLink onClick={onBack} label="Back" />
-			<label className="flex items-center gap-2">
-				<span className="shrink-0 font-ui text-xs text-muted-foreground">Name</span>
-				<input
-					value={name}
-					onChange={(e) => setName(e.target.value.replace(/[^a-zA-Z0-9_-]/g, "-"))}
-					aria-label="Connection name"
-					className={`${INPUT} max-w-56`}
-				/>
-			</label>
-			<LaunchWarning config={parsed.config} />
-			{fields.length > 0 && (
-				<SettingsGroup label={fields.length === 1 ? "It needs one thing from you" : `It needs ${fields.length} things from you`}>
-					{fields.map((f) => (
-						<label key={f.key} className="flex flex-col gap-1">
-							<span className="flex items-baseline justify-between gap-2">
-								<span className="font-prose text-(length:--lh-prose-size)">{f.label}</span>
-								<span className="font-mono text-[10px] text-muted-foreground/60">{f.key}</span>
-							</span>
-							<input
-								type={f.secret ? "password" : "text"}
-								value={values[f.key] ?? ""}
-								onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
-								placeholder={f.secret ? "Paste it here" : ""}
-								autoComplete="off"
-								spellCheck={false}
-								className={INPUT}
-							/>
-						</label>
-					))}
-					<p className="text-xs text-muted-foreground/70">These stay on this Mac, in LearnHarness’s data folder.</p>
-				</SettingsGroup>
-			)}
-			<details className="group">
-				<summary className="flex cursor-pointer list-none items-center gap-1 text-xs text-muted-foreground/70 [&::-webkit-details-marker]:hidden">
-					<ChevronRight className="size-3 transition-transform group-open:rotate-90" />
-					Setup code
-				</summary>
-				<pre className="mt-2 max-h-40 overflow-auto rounded-sm border border-border bg-background p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
-					{JSON.stringify({ [name]: parsed.config }, null, 2)}
-				</pre>
-			</details>
-			{error && <p role="alert" className="text-xs text-red-500">{error}</p>}
-			<div className="flex items-center gap-4">
-				<button
-					type="button"
-					onClick={() => void connect()}
-					disabled={busy || missing > 0 || !name}
-					data-testid="connections-connect"
-					className="rounded-sm bg-foreground px-3 py-1 font-ui text-xs text-background disabled:opacity-40"
-				>
-					{busy ? "Connecting…" : "Connect"}
-				</button>
-				<button type="button" onClick={onCancel} disabled={busy} className={LINK}>
-					Cancel
-				</button>
-				{missing > 0 && <span className="text-xs text-muted-foreground/70">{missing === 1 ? "Fill in the empty field." : `Fill in the ${missing} empty fields.`}</span>}
-			</div>
-		</div>
-	);
-}
-
 function LaunchWarning({ config }: { config: McpServerConfig }) {
 	const launch = describeLaunch(config);
 	return (
@@ -514,8 +323,8 @@ function ManualView({
 
 	return (
 		<div className={CONNECTION_VIEW} data-testid="connections-manual-view">
-			<BackLink onClick={onBack} label="Back" />
-			<p className="font-prose text-(length:--lh-prose-size)">Set up manually</p>
+			<BackLink onClick={onBack} label="Connections" />
+			<p className="font-prose text-(length:--lh-prose-size)">Add a connection</p>
 			<div className="flex gap-1">
 				{tab("program", "Program on this Mac")}
 				{tab("online", "Online")}
