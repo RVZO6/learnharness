@@ -34,6 +34,7 @@ test("Add opens the manual form directly; Back and Cancel return to the list", a
 	assert(manual);
 	assert.equal(manual.querySelector("p")!.textContent, "Add a connection");
 	assert(byTest("manual-command"));
+	assert.equal(manual.lastElementChild, byTest("manual-connect").parentElement, "no empty warning slot follows the buttons before a connection is entered");
 	assert(button("Program on this Mac"));
 	assert(button("Online"));
 	assert(!document.querySelector("textarea"));
