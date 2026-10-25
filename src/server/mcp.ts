@@ -7,11 +7,11 @@ import {
 	McpClient,
 	StdioTransport,
 	StreamableHttpTransport,
-	toLlmContent,
 	type McpTransport,
 	type Tool,
 } from "@earendil-works/pi-mcp";
 import { MCP_CONFIG_FILE } from "../../config.ts";
+import { storeMcpResult, type McpResultStorage } from "./mcp-results.ts";
 import {
 	firstSentence,
 	isHttpConfig,
@@ -132,7 +132,7 @@ export function mcpToolName(server: string, tool: string, taken: Set<string>): s
 /** Wrap one MCP tool as a pi AgentTool. MCP reports tool failures inside
  *  the result (isError), not as a protocol error; both reach the model as
  *  an error result it can react to. */
-export function wrapMcpTool(client: McpClient, server: string, tool: Tool, name: string): AgentTool<any> {
+export function wrapMcpTool(client: McpClient, server: string, tool: Tool, name: string, storage: McpResultStorage = {}): AgentTool<any> {
 	return {
 		name,
 		label: `${server}: ${tool.title ?? tool.name}`,
@@ -144,7 +144,8 @@ export function wrapMcpTool(client: McpClient, server: string, tool: Tool, name:
 				signal,
 				timeoutMs: CALL_TIMEOUT_MS,
 			});
-			return { content: toLlmContent(result), details: undefined, isError: result.isError === true };
+			signal?.throwIfAborted();
+			return { ...storeMcpResult(result, storage), details: undefined };
 		},
 	};
 }
@@ -297,7 +298,7 @@ function records(file: string = MCP_CONFIG_FILE): Promise<ServerRecord[]> {
 }
 
 /** The agent's MCP tool set: enabled tools of connected servers. */
-export async function mcpTools(file: string = MCP_CONFIG_FILE): Promise<AgentTool<any>[]> {
+export async function mcpTools(file: string = MCP_CONFIG_FILE, chatId?: string): Promise<AgentTool<any>[]> {
 	const taken = new Set<string>();
 	// Name assignment runs in config order, so dedupe suffixes are stable.
 	return (await records(file)).flatMap((r) =>
@@ -305,7 +306,7 @@ export async function mcpTools(file: string = MCP_CONFIG_FILE): Promise<AgentToo
 			? []
 			: r.tools
 					.filter((tool) => mcpToolEnabled(r.config, tool.name, tool.annotations))
-					.map((tool) => wrapMcpTool(r.client!, r.name, tool, mcpToolName(r.name, tool.name, taken))),
+					.map((tool) => wrapMcpTool(r.client!, r.name, tool, mcpToolName(r.name, tool.name, taken), { chatId })),
 	);
 }
 

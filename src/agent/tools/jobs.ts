@@ -58,7 +58,7 @@ export const visualInputSchema = Type.Object({
 });
 
 export const pdfInputSchema = Type.Object({
-	path: Type.String({ description: "Path to the learner's PDF (relative or absolute), exactly as they gave it." }),
+	path: Type.String({ description: "Path to the PDF (relative or absolute), supplied by the learner or returned by an MCP tool." }),
 	question: Type.String({
 		description:
 			"What you need from the document — the specific content, explanation, or answer to extract and brief. " +
@@ -115,7 +115,7 @@ const VISUAL_DESCRIPTION =
 	"as a new message.";
 const PDF_DESCRIPTION =
 	"Dispatch a background sub-agent that READS a learner-provided PDF on your behalf (triage, targeted extraction, visual page " +
-	"reading for equations and diagrams) and returns a brief with page citations. Use it when the learner gives you a PDF path " +
+	"reading for equations and diagrams) and returns a brief with page citations. Use it when the learner or an MCP tool gives you a PDF path " +
 	"and you need its CONTENT for the lesson. The call is ASYNC and fire-and-forget — it resolves immediately and your turn " +
 	"continues; the brief arrives later as a new message. For quick looks at plain text or image files, use the read tool " +
 	"directly instead of dispatching.";

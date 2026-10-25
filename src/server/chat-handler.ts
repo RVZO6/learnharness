@@ -181,7 +181,7 @@ export async function handleChatInput(
 	// The learner's MCP tools (src/server/mcp.ts) resolve FIRST, before the
 	// record read: the only await that can take seconds (first connect or a
 	// config edit) must not sit between reading the record and acting on it.
-	const extraTools = await mcpTools();
+	const extraTools = await mcpTools(undefined, chatId);
 	let record = stores.chatStore.getChat(chatId);
 	if (!record) {
 		return Response.json({ error: "Unknown chat" }, { status: 404 });

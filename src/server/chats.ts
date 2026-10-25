@@ -5,6 +5,7 @@ import { titleFromPrompt } from "../core/contracts.ts";
 import { graphRevision } from "./graph.ts";
 import { stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
+import { deleteMcpResults } from "./mcp-results.ts";
 
 /**
  * Server-side chat entries for the transport layer (app/api/chats*,
@@ -105,7 +106,8 @@ export async function deleteChatSession(chatId: string, mode: ChatDeleteMode): P
 	}
 
 	// THE SYNC BLOCK — no awaits below (see the doc comment). Order:
-	// ledgers → jobs → the chat record.
+	// saved MCP files → ledgers → jobs → the chat record.
+	deleteMcpResults(chatId);
 	const stats = deleteChatTraces(stores.graphStore, chatId, mode);
 	const jobsRemoved = stores.jobStore.deleteJobsForChat(chatId);
 	stores.chatStore.deleteChat(chatId);

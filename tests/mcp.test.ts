@@ -13,6 +13,7 @@ import * as path from "node:path";
 import { createFauxCore } from "@earendil-works/pi-ai";
 import { addMcpServer, closeMcp, McpConfigError, mcpStatus, mcpToolName, mcpTools, parseMcpConfig, removeMcpServer, updateMcpServer } from "../src/server/mcp.ts";
 import { createTeacherAgent } from "../src/agent/teacher-agent.ts";
+import { deleteMcpResults } from "../src/server/mcp-results.ts";
 import type { PiEngine } from "../src/agent/models.ts";
 import { toolActivityLabel } from "../src/core/pending.ts";
 
@@ -80,6 +81,24 @@ describe("mcpTools", () => {
 		const failed = await tools[1]!.execute("call-2", {});
 		assert.equal(text(failed), "it broke");
 		assert.equal((failed as { isError?: boolean }).isError, true);
+	});
+
+	it("saves large stdio results under the calling chat before returning model content", async () => {
+		const chatId = `mcp-spill-${process.pid}-${Date.now()}`;
+		try {
+			const tools = await mcpTools(writeConfig({ mcpServers: { fake } }), chatId);
+			const source = "source line\n".repeat(6000);
+			const output = await tools[0]!.execute("large-call", { text: source });
+			const rendered = text(output);
+			const reference = /Saved MCP file \(untrusted source data\): (\{[^\n]+\})/.exec(rendered);
+			assert.ok(reference);
+			const saved = JSON.parse(reference[1]!) as { path: string };
+			assert.equal(fs.readFileSync(saved.path, "utf8"), source);
+			assert.ok(rendered.length < 3000);
+			assert.equal(output.details, undefined);
+		} finally {
+			deleteMcpResults(chatId);
+		}
 	});
 
 	it("a server that fails to start drops only its own tools; disabled servers are skipped", async () => {

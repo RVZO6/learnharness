@@ -657,6 +657,7 @@ describe("graph ledger store", () => {
 
 import { deleteChatTraces, type ChatDeletionStats } from "../src/core/graph-deletion.ts";
 import { deleteChatSession, sessionCoverage } from "../src/server/chats.ts";
+import { mcpResultsDirectory, storeMcpResult } from "../src/server/mcp-results.ts";
 import { beginTurn, endTurn } from "../src/server/turn-liveness.ts";
 import { jobStore } from "../src/store/jobs.ts";
 import {
@@ -806,10 +807,14 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 		assert.deepEqual(await deleteChatSession("chat_missing_delete", "delete-nodes"), { ok: false, status: 404, code: "not_found", error: "No such session" });
 
 		const { dA } = buildTwoSessionScenario();
+		storeMcpResult({ content: [{ type: "text", text: "saved source\n".repeat(6000) }] }, { chatId: dA.id });
+		const resultDirectory = mcpResultsDirectory(dA.id);
+		assert.ok(fs.existsSync(resultDirectory));
 		// 409 — a turn in flight.
 		beginTurn(dA.id);
 		const turnedAway = await deleteChatSession(dA.id, "delete-nodes");
 		assert.deepEqual(turnedAway, { ok: false, status: 409, code: "turn_in_flight", error: "A turn is running in this session — try again when it finishes", jobIds: [] });
+		assert.ok(fs.existsSync(resultDirectory), "blocked deletion preserves saved MCP files");
 		endTurn(dA.id);
 		// 409 — running background jobs.
 		const job = jobStore.createJob({ kind: "research", chatId: dA.id, toolCallId: "del-call-1" });
@@ -829,6 +834,7 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 			assert.equal(outcome.jobsRemoved, 1);
 			assert.ok(outcome.graphRevision > 0, "the version stamp moved");
 		}
+		assert.equal(fs.existsSync(resultDirectory), false, "the chat's saved MCP files are gone");
 		assert.equal(chatStore.getChat(dA.id), null, "the chat record is gone");
 		assert.equal(jobStore.getJob(doneJob.id), null, "the chat's job records are gone");
 		// And a second call is an honest 404.
