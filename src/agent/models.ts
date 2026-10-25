@@ -7,6 +7,7 @@ import {
 	type Models,
 	type StreamFunction,
 } from "@earendil-works/pi-ai";
+import { syncCustomConnections } from "./custom-connections.ts";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type ModelRole } from "../../config.ts";
@@ -35,7 +36,8 @@ export const APP_IDENTITY = Object.freeze({
  * An "engine" is the model + the stream function the agent loop runs on —
  * the two things a test fake replaces. Production engines resolve the model
  * from pi-ai's static catalogs and stream through the same Models
- * collection.
+ * collection. Custom connections enter through the same collection with
+ * server-published or user-entered model details.
  */
 
 export interface PiEngine {
@@ -63,6 +65,7 @@ export function piModels() {
 		collection = createModels({ identity: APP_IDENTITY });
 		for (const provider of builtinProviders()) collection.setProvider(provider);
 	}
+	syncCustomConnections(collection);
 	return collection;
 }
 

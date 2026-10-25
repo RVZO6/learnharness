@@ -43,6 +43,7 @@ import { MenuShell } from "@/components/menu-shell";
 import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
 import { Hint } from "@/components/ui/hint";
 import { type ProviderKeyInfo } from "@/components/settings/keys-section";
+import { CustomConnections } from "@/components/settings/custom-connections";
 import { ProviderMenuList } from "@/components/settings/model-menu";
 import { ChatGPTBackgroundAccess } from "@/components/settings/chatgpt-connection";
 import { NativeSubscriptionBackgroundAccess, SubscriptionConnections } from "@/components/settings/subscription-connections";
@@ -428,7 +429,7 @@ export function SetupDialog({
 				</header>
 
 				{stage === "keys" ? (
-					<div className="flex flex-col px-6 py-5">
+					<div className="flex flex-col overflow-y-auto px-6 py-5">
 						{failed ? (
 							<p className="text-sm text-foreground">
 								Model catalog could not be loaded. Check the connection and retry.
@@ -452,6 +453,10 @@ export function SetupDialog({
 								onSave={() => void saveKey()}
 							/>
 						)}
+						<div className="mt-3 border-t border-border pt-4">
+							<h3 className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Custom connections</h3>
+							<CustomConnections />
+						</div>
 					</div>
 				) : (
 					<div className="flex flex-col gap-4 overflow-y-auto px-6 py-5" data-testid="setup-stage-pickers">

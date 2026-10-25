@@ -6,16 +6,20 @@
  * /api/settings/* — the per-chat settings PUT is retired from the UI;
  * legacy records' per-chat overrides still resolve server-side).
  *
- * pi-ai owns ALL the data: the catalog (id/name/cost/context/modality/
+ * Built-in model metadata comes from pi-ai: the catalog (id/name/cost/context/modality/
  * thinkingLevelMap) and the per-model thinking truth
  * (getSupportedThinkingLevels / clampThinkingLevel). This module only
- * projects and validates — no second registry to drift out of sync.
+ * projects and validates. Custom connections supply explicit saved metadata
+ * and register their models in the same pi-ai runtime collection.
  *
  * Federation: `getModels()` is called per keyed provider (federated, the
  * model-slots wave), so a provider appears in the picker exactly when its
  * key is present — piModels() in src/agent/models.ts owns the provider
  * set; nothing here changes.
  */
+
+import { customConnections } from "./custom-connections.ts";
+import { isCustomConnection } from "../core/custom-connections.ts";
 
 import { clampThinkingLevel, getSupportedThinkingLevels, type Api, type Model } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
@@ -140,6 +144,7 @@ export function catalogProviders(): CatalogProvider[] {
 		envVar: p.envVar,
 		keyPresent: keyValue(p.envVar) !== undefined,
 	})).concat([
+		...customConnections().map((c) => ({ id: c.id, envVar: "", keyPresent: c.keyPresent })),
 		{ id: "chatgpt", envVar: "", keyPresent: chatGPTConnected() },
 		...NATIVE_SUBSCRIPTIONS.map((p) => ({ id: p.logicalId, envVar: "", keyPresent: nativeSubscriptionConnected(p.providerId) })),
 	]).sort((a, b) => a.id.localeCompare(b.id));
@@ -155,6 +160,7 @@ function keyedProviderIds(): Set<string> {
 /** Project one catalog model to the client DTO. */
 export function toModelDto(model: Model<Api>): ModelDto {
 	return {
+		...(isCustomConnection(model.provider) ? { connectionName: customConnections().find((c) => c.id === model.provider)?.name, pricingKnown: false } : {}),
 		id: model.id,
 		name: model.name,
 		provider: model.provider,

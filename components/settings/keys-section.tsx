@@ -26,6 +26,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AUTH_KEYS, type AuthKeyStatus } from "@/src/core";
 import { SettingsGroup } from "./controls.tsx";
+import { CustomConnections } from "./custom-connections.tsx";
 import { SubscriptionConnections } from "./subscription-connections.tsx";
 import { ProviderMenuList } from "./model-menu.tsx";
 import { MenuShell } from "@/components/menu-shell";
@@ -453,6 +454,10 @@ export function KeysSection({
 						<span className="font-mono text-[11px] text-muted-foreground">{status.masked}</span>
 					</div>)}
 				</div>}
+			</SettingsGroup>
+
+			<SettingsGroup label="Custom connections" testid="group-custom-connections">
+				<CustomConnections />
 			</SettingsGroup>
 
 			<SettingsGroup label="Subscriptions" testid="group-subscriptions">
