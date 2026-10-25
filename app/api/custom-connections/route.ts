@@ -1,4 +1,4 @@
-import { CustomConnectionInputError, customConnections, saveCustomConnection } from "@/src/server";
+import { CustomConnectionInputError, customConnections, saveAndDiscoverCustomConnection } from "@/src/server";
 export const dynamic = "force-dynamic";
 export async function GET() {
 	try { return Response.json({ connections: customConnections() }); }
@@ -7,6 +7,6 @@ export async function GET() {
 export async function POST(req: Request) {
 	let body: unknown;
 	try { body = await req.json(); } catch { return Response.json({ error: "Invalid JSON." }, { status: 400 }); }
-	try { saveCustomConnection(body); return Response.json({ ok: true }); }
+	try { return Response.json(await saveAndDiscoverCustomConnection(body)); }
 	catch (error) { return Response.json({ error: error instanceof CustomConnectionInputError ? error.message : "Connection could not be saved." }, { status: error instanceof CustomConnectionInputError ? 400 : 500 }); }
 }

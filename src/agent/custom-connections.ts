@@ -1,6 +1,6 @@
 import { createProvider, type createModels, type ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
-import { CUSTOM_THINKING_LEVELS, type CustomConnection } from "../core/custom-connections.ts";
+import { CUSTOM_THINKING_LEVELS, usableCustomModels, type CustomConnection } from "../core/custom-connections.ts";
 
 // The composition root supplies storage. Agent code never imports a store.
 const KEY = Symbol.for("lh.customConnections");
@@ -22,9 +22,11 @@ export function syncCustomConnections(models: Models) {
 			auth: { apiKey: { name: "Connection API key", resolve: async () => {
 				const live = state().read().find((c) => c.id === connection.id);
 				if (!live || live.baseUrl !== connection.baseUrl) return undefined;
-				return { auth: { apiKey: live.apiKey, baseUrl: live.baseUrl } };
+				// The SDK requires a nonempty internal key. A null header removes its
+				// generated Authorization header, so keyless requests send no token.
+				return { auth: { apiKey: live.apiKey || "unused", baseUrl: live.baseUrl, ...(!live.apiKey ? { headers: { Authorization: null } } : {}) } };
 			} } },
-			models: connection.models.map((m) => ({
+			models: usableCustomModels(connection.models).map((m) => ({
 				id: m.id, name: m.name ?? m.id, provider: connection.id, api: "openai-completions" as const, baseUrl: connection.baseUrl,
 				contextWindow: m.contextWindow, maxTokens: m.maxTokens, input: m.imageInput ? ["text", "image"] : ["text"],
 				reasoning: m.supportedLevels.some((l) => l !== "off"),

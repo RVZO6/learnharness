@@ -205,7 +205,7 @@ export function keyValue(id: string): string | undefined {
  * no key at all: nothing to gate, present by definition. */
 export function providerKeyPresent(provider: string): boolean {
 	if (isSubscriptionProvider(provider)) return subscriptionConnected(provider);
-	if (isCustomConnection(provider)) return customConnections().some((c) => c.id === provider && c.keyPresent);
+	if (isCustomConnection(provider)) return customConnections().some((c) => c.id === provider && c.ready);
 	const info = AUTH_PROVIDER_KEYS.find((p) => p.id === provider);
 	return info ? keyValue(info.envVar) !== undefined : true;
 }

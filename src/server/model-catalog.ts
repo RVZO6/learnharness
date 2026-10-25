@@ -144,7 +144,7 @@ export function catalogProviders(): CatalogProvider[] {
 		envVar: p.envVar,
 		keyPresent: keyValue(p.envVar) !== undefined,
 	})).concat([
-		...customConnections().map((c) => ({ id: c.id, envVar: "", keyPresent: c.keyPresent })),
+		...customConnections().map((c) => ({ id: c.id, envVar: "", keyPresent: c.ready })),
 		{ id: "chatgpt", envVar: "", keyPresent: chatGPTConnected() },
 		...NATIVE_SUBSCRIPTIONS.map((p) => ({ id: p.logicalId, envVar: "", keyPresent: nativeSubscriptionConnected(p.providerId) })),
 	]).sort((a, b) => a.id.localeCompare(b.id));
