@@ -81,7 +81,7 @@ describe("desktop window chrome", () => {
 			"appleSpeech", "chatgpt", "expandWindow", "getZoom", "installUpdate", "onUpdateStatus", "onZoom", "platform", "subscriptions",
 		]);
 		assert.deepEqual(Object.keys(bridge.subscriptions as object).sort(), ["cancel", "consent", "disconnect", "login", "onChange", "open", "respond", "retry", "status"]);
-		assert.deepEqual(Object.keys(bridge.appleSpeech as object).sort(), ["audio", "cancel", "install", "onEvent", "onInstall", "release", "start", "status", "stop"]);
+		assert.deepEqual(Object.keys(bridge.appleSpeech as object).sort(), ["audio", "cancel", "install", "onEvent", "onInstall", "start", "status", "stop"]);
 	});
 });
 
