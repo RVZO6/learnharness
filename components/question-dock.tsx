@@ -461,6 +461,9 @@ function QuestionDockForm({
 		if (!active || rowCount === 0) return;
 		const onKeyDown = (e: KeyboardEvent) => {
 			const t = e.target as HTMLElement | null;
+			// Let controls inside Markdown keep their native keyboard behavior.
+			const row = t?.closest("[data-kbdrow]");
+			if (row && t !== row && t?.closest("button, a")) return;
 			// A TYPING field is where keys mean text (owner round 4): the
 			// thinking/answer fields, search boxes, renames — never a range
 			// input, whose focus after a click or drag must not kill the
@@ -573,15 +576,27 @@ function QuestionDockForm({
 						{qd.options.map((opt, i) => {
 							const isSel = sel.selected.has(i);
 							return (
-								<button
+								<div
 									key={opt.value}
-									type="button"
+									tabIndex={0}
 									role={qd.mode === "multi-select" ? "checkbox" : "radio"}
 									aria-checked={isSel}
 									data-kbdrow={i}
-									onClick={() => toggle(i)}
+									onClick={(e) => {
+										// Markdown controls act independently of the answer row.
+										if ((e.target as HTMLElement).closest("button, a, input, textarea, select")) return;
+										toggle(i);
+									}}
+									onKeyDown={(e) => {
+										if (e.target !== e.currentTarget || kbdIdx !== null || e.altKey || e.metaKey || e.ctrlKey) return;
+										if (e.key === " " || e.key === "Enter") {
+											e.preventDefault();
+											e.stopPropagation();
+											toggle(i);
+										}
+									}}
 									className={cn(
-										"flex items-start gap-3 rounded-lg border px-3 py-2 text-left text-sm outline-none transition-colors",
+										"flex items-start gap-3 rounded-lg border px-3 py-2 text-left text-sm outline-none transition-colors cursor-pointer",
 										isSel ? "border-primary bg-accent" : "hover:bg-accent/50",
 										i === kbdIdx && !isSel && "ring-1 ring-border bg-accent/40",
 									)}
@@ -599,7 +614,7 @@ function QuestionDockForm({
 											</span>
 										)}
 									</span>
-									<span>
+									<div>
 										<MessageResponse>{opt.label}</MessageResponse>
 										{kind !== "quiz" && opt.description && (
 											// Option subtext renders in Source Sans 3 (owner's mockup);
@@ -613,8 +628,8 @@ function QuestionDockForm({
 												{opt.description}
 											</MessageResponse>
 										)}
-									</span>
-								</button>
+									</div>
+								</div>
 							);
 						})}
 
