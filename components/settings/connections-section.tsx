@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronRight } from "lucide-react";
 import { Hint } from "@/components/ui/hint";
 import {
 	applySetupFields,
@@ -19,7 +18,7 @@ import { SettingsGroup, Toggle } from "./controls";
  * app/api/mcp). A manual setup
  * form lets the learner enter a local command or online connection.
  * Each tool reads as a plain "ability" with a reads / changes-things tag.
- * Technical detail (the stored entry, the server's output) stays folded.
+ * Existing local environment variables have explicit edit/remove actions.
  *
  * Three views: the list, manual setup, and one connection.
  */
@@ -191,7 +190,7 @@ function ServerRow({ server: s, onOpen, onChange }: { server: ServerStatus; onOp
 			</div>
 			{s.state === "error" && (
 				<div className="px-1 pb-1.5 text-xs">
-					<p className="text-red-500/90">{s.error}</p>
+					{s.error && s.error !== "It could not start." && <p className="text-red-500/90">{s.error}</p>}
 					<span className="mt-0.5 flex gap-3">
 						{s.missing && (
 							<a href={s.missing.url} target="_blank" rel="noreferrer" className={LINK}>
@@ -458,10 +457,13 @@ function DetailView({
 		setError(null);
 		try {
 			onChange((await api<{ server: ServerStatus }>(url, init)).server, s.name);
+			return true;
 		} catch (e) {
 			setError(e instanceof Error ? e.message : "Failed");
+			return false;
+		} finally {
+			setBusy(false);
 		}
-		setBusy(false);
 	}
 	const patch = (body: object) => run({ method: "PATCH", body: JSON.stringify(body) });
 
@@ -496,7 +498,7 @@ function DetailView({
 
 			{s.state === "error" && (
 				<div className="text-xs">
-					<p className="text-red-500/90">{s.error}</p>
+					{s.error && s.error !== "It could not start." && <p className="text-red-500/90">{s.error}</p>}
 					<span className="mt-0.5 flex gap-3">
 						{s.missing && (
 							<a href={s.missing.url} target="_blank" rel="noreferrer" className={LINK}>
@@ -529,7 +531,9 @@ function DetailView({
 				</SettingsGroup>
 			)}
 
-			{s.fields.length > 0 && (
+			{s.transport === "program" && <VariablesEditor key={s.name} server={s} busy={busy} onSave={patch} />}
+
+			{s.transport === "online" && s.fields.length > 0 && (
 				<SettingsGroup label="Setup">
 					{s.fields.map((f) =>
 						editing === f.key ? (
@@ -574,16 +578,6 @@ function DetailView({
 				</SettingsGroup>
 			)}
 
-			<details className="group">
-				<summary className="flex cursor-pointer list-none items-center gap-1 text-xs text-muted-foreground/70 [&::-webkit-details-marker]:hidden">
-					<ChevronRight className="size-3 transition-transform group-open:rotate-90" />
-					Technical details
-				</summary>
-				<pre className="mt-2 max-h-48 overflow-auto rounded-sm border border-border bg-background p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
-					{JSON.stringify({ [s.name]: s.config }, null, 2)}
-					{s.details ? `\n\n${s.details}` : ""}
-				</pre>
-			</details>
 
 			{error && <p role="alert" className="text-xs text-red-500">{error}</p>}
 
@@ -638,6 +632,74 @@ function DetailView({
 				</span>
 			</div>
 		</div>
+	);
+}
+
+function VariablesEditor({ server, busy, onSave }: {
+	server: ServerStatus;
+	busy: boolean;
+	onSave: (patch: object) => Promise<boolean>;
+}) {
+	const [editing, setEditing] = useState<string | null>(null);
+	const [name, setName] = useState("");
+	const [value, setValue] = useState("");
+	const [changed, setChanged] = useState(false);
+	const [validation, setValidation] = useState<string | null>(null);
+	const fields = server.fields.filter((field) => field.where === "env");
+	const original = fields.find((field) => field.key === editing);
+	const begin = (field?: ServerStatus["fields"][number]) => {
+		setEditing(field?.key ?? "");
+		setName(field?.key ?? "");
+		setValue(field && !field.secret ? field.value : "");
+		setChanged(false);
+		setValidation(null);
+	};
+	async function save() {
+		if (editing === null || busy) return;
+		const key = name.trim();
+		if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+			setValidation("Use a variable name with letters, numbers, and underscores; start with a letter or underscore.");
+			return;
+		}
+		if (key !== editing && fields.some((field) => field.key === key)) {
+			setValidation("That variable already exists.");
+			return;
+		}
+		if (original?.secret && key !== editing && !changed) {
+			setValidation("Enter a replacement value to rename this secret.");
+			return;
+		}
+		setValidation(null);
+		const values = original?.secret && !changed ? {} : { [key]: value };
+		const removeEnv = original && key !== editing ? [editing] : [];
+		if (await onSave({ values, removeEnv })) setEditing(null);
+	}
+	const form = (
+		<div className="flex flex-col gap-2">
+			<div className="flex items-center gap-2">
+				<input aria-label="Variable name" value={name} disabled={busy} onChange={(event) => setName(event.target.value)}
+					placeholder="NAME" spellCheck={false} className={INPUT + " max-w-48"} />
+				<input aria-label="Variable value" type={original?.secret || /(key|token|secret|password|passwd|auth|credential|bearer|cookie)/i.test(name) ? "password" : "text"}
+					value={value} disabled={busy} onChange={(event) => { setValue(event.target.value); setChanged(true); }}
+					placeholder={original?.secret && !changed ? "Unchanged" : "value"} autoComplete="off" spellCheck={false} className={INPUT} />
+				<button type="button" disabled={busy} onClick={() => void save()} className={LINK}>Save</button>
+				<button type="button" disabled={busy} onClick={() => { setEditing(null); setValidation(null); }} className={LINK}>Cancel</button>
+			</div>
+			{validation && <p role="alert" className="text-xs text-red-500">{validation}</p>}
+		</div>
+	);
+	return (
+		<SettingsGroup label="Variables" testid="connection-variables">
+			{fields.map((field) => editing === field.key ? <div key={field.key}>{form}</div> : (
+				<div key={field.key} className="flex items-center gap-3">
+					<span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">{field.key}</span>
+					<span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">{field.value || "empty"}</span>
+					<button type="button" disabled={busy} aria-label={"Edit " + field.key} onClick={() => begin(field)} className={LINK}>Edit</button>
+					<button type="button" disabled={busy} aria-label={"Remove " + field.key} onClick={() => void onSave({ removeEnv: [field.key] })} className={LINK}>Remove</button>
+				</div>
+			))}
+			{editing === "" ? form : <button type="button" disabled={busy} onClick={() => begin()} className={"self-start " + LINK}>+ Add variable</button>}
+		</SettingsGroup>
 	);
 }
 

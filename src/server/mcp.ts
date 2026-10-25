@@ -429,10 +429,19 @@ export interface McpServerPatch {
 	tools?: Record<string, boolean>;
 	/** Setup values by env/header key; masked values ("••••…") are ignored. */
 	values?: Record<string, string>;
+	/** Remove these environment entries from a local program. */
+	removeEnv?: string[];
 	rename?: string;
 }
 
 export async function updateMcpServer(name: string, patch: McpServerPatch, file: string = MCP_CONFIG_FILE): Promise<McpServerStatus | null> {
+	if (patch.values !== undefined && (
+		typeof patch.values !== "object" || patch.values === null || Array.isArray(patch.values) ||
+		Object.entries(patch.values).some(([key, value]) => !key.trim() || typeof value !== "string")
+	)) throw new McpConfigError("Setup values must be a map of names to strings.");
+	if (patch.removeEnv !== undefined && (
+		!Array.isArray(patch.removeEnv) || patch.removeEnv.some((key) => typeof key !== "string" || !key.trim())
+	)) throw new McpConfigError("Variables to remove must be a list of names.");
 	let finalName = name;
 	editServers(file, (servers) => {
 		const entry = servers[name];
@@ -447,6 +456,12 @@ export async function updateMcpServer(name: string, patch: McpServerPatch, file:
 			const real = Object.fromEntries(Object.entries(patch.values).filter(([, v]) => !v.startsWith("••••")));
 			if (isHttpConfig(next)) next = { ...next, headers: { ...next.headers, ...real } };
 			else next = { ...next, env: { ...next.env, ...real } };
+		}
+		if (patch.removeEnv?.length) {
+			if (isHttpConfig(next)) throw new McpConfigError("Environment variables apply only to local programs.");
+			const env = { ...next.env };
+			for (const key of patch.removeEnv) delete env[key];
+			next = { ...next, env };
 		}
 		if (patch.rename && patch.rename !== name) {
 			if (!/^[a-z0-9_-]{1,40}$/i.test(patch.rename)) throw new McpConfigError("Use letters, numbers, - and _ for the name.");

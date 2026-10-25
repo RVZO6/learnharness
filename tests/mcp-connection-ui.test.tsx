@@ -151,3 +151,121 @@ test("a request completing after navigation cannot replace the retained connecti
 	assert.deepEqual(cache.current, []);
 	assert.equal(document.body.textContent, "Another settings screen");
 });
+
+const serverFixture = (error = "It could not start.") => ({
+	name: "canvas", state: "error", transport: "program", summary: "", error, details: "raw diagnostics",
+	tools: [], config: { command: "canvas-mcp-server", env: { API_TOKEN: "••••1234", REGION: "ca" } },
+	fields: [
+		{ where: "env", key: "API_TOKEN", label: "API token", secret: true, value: "••••1234" },
+		{ where: "env", key: "REGION", label: "Region", secret: false, value: "ca" },
+	],
+});
+function labelled(label: string) {
+	return [...document.querySelectorAll<HTMLElement>("[aria-label]")].find((element) => element.getAttribute("aria-label") === label)!;
+}
+async function enter(label: string, value: string) {
+	const input = labelled(label) as HTMLInputElement;
+	assert(input);
+	// Linkedom does not implement React's native input change tracking.
+	const propKey = Object.keys(input).find((key) => key.startsWith("__reactProps$"))!;
+	const props = (input as unknown as Record<string, { onChange: (event: { target: { value: string } }) => void }>)[propKey]!;
+	await act(async () => props.onChange({ target: { value } }));
+}
+
+test("generic connection errors appear once in list and detail; technical details are removed", async () => {
+	await mount([serverFixture()], false);
+	assert.equal((document.body.textContent?.match(/couldn’t start/g) ?? []).length, 1);
+	assert(!document.body.textContent?.includes("It could not start."));
+	await click(button("Details"));
+	assert.equal((document.body.textContent?.match(/couldn’t start/g) ?? []).length, 1);
+	assert(!document.body.textContent?.includes("It could not start."));
+	assert(!document.querySelector("details"));
+	assert(!document.body.textContent?.includes("Technical details"));
+	assert(!document.body.textContent?.includes("raw diagnostics"));
+	assert(labelled("Edit API_TOKEN"));
+	assert(labelled("Edit REGION"));
+	assert(!document.body.textContent?.includes("Edit variables"));
+});
+
+test("specific connection failures remain visible", async () => {
+	const message = "The service did not accept the access token. Check it, then try again.";
+	await mount([serverFixture(message)], false);
+	assert(document.body.textContent?.includes(message));
+	await click(button("Details"));
+	assert(document.body.textContent?.includes(message));
+});
+
+test("existing secret edits start blank and preserve the saved value when unchanged", async () => {
+	const server = serverFixture();
+	await mount([server], false);
+	await click(button("Details"));
+	await click(labelled("Edit API_TOKEN"));
+	const input = labelled("Variable value") as HTMLInputElement;
+	assert.equal(input.value, "");
+	assert.equal(input.getAttribute("type"), "password");
+	assert.equal(input.getAttribute("placeholder"), "Unchanged");
+	let written: unknown;
+	globalThis.fetch = async (_url, init) => { written = JSON.parse(String(init?.body)); return Response.json({ server }); };
+	await click(button("Save"));
+	assert.deepEqual(written, { values: {}, removeEnv: [] });
+	assert(!labelled("Variable value"));
+});
+
+test("variables can be added even when a connection has no environment entries", async () => {
+	const server = { ...serverFixture(), fields: [], config: { command: "canvas-mcp-server" } };
+	await mount([server], false);
+	await click(button("Details"));
+	await click(button("+ Add variable"));
+	await enter("Variable name", "NEW_TOKEN");
+	await enter("Variable value", "new-private-value");
+	let written: unknown;
+	globalThis.fetch = async (_url, init) => { written = JSON.parse(String(init?.body)); return Response.json({ server }); };
+	await click(button("Save"));
+	assert.deepEqual(written, { values: { NEW_TOKEN: "new-private-value" }, removeEnv: [] });
+	assert(!document.body.textContent?.includes("new-private-value"));
+});
+
+test("variable save failures preserve the draft; Cancel makes no request", async () => {
+	await mount([serverFixture()], false);
+	await click(button("Details"));
+	await click(labelled("Edit REGION"));
+	await enter("Variable value", "us");
+	let requests = 0;
+	globalThis.fetch = async () => { requests++; return Response.json({ error: "Save failed" }, { status: 500 }); };
+	await click(button("Save"));
+	assert.equal((labelled("Variable value") as HTMLInputElement).value, "us");
+	assert(document.body.textContent?.includes("Save failed"));
+	await click(button("Cancel"));
+	assert.equal(requests, 1);
+	assert(!labelled("Variable value"));
+});
+
+test("variable removal sends an explicit removal, not an empty replacement", async () => {
+	const server = serverFixture();
+	await mount([server], false);
+	await click(button("Details"));
+	let written: unknown;
+	globalThis.fetch = async (_url, init) => {
+		written = JSON.parse(String(init?.body));
+		return Response.json({ server: { ...server, fields: server.fields.filter((field) => field.key !== "REGION") } });
+	};
+	await click(labelled("Remove REGION"));
+	assert.deepEqual(written, { removeEnv: ["REGION"] });
+	assert(!labelled("Edit REGION"));
+	assert(labelled("Edit API_TOKEN"));
+});
+
+test("duplicate names and secret renames without a replacement do not submit", async () => {
+	await mount([serverFixture()], false);
+	await click(button("Details"));
+	await click(labelled("Edit API_TOKEN"));
+	let requests = 0;
+	globalThis.fetch = async () => { requests++; return Response.json({}); };
+	await enter("Variable name", "REGION");
+	await click(button("Save"));
+	assert(document.body.textContent?.includes("That variable already exists."));
+	await enter("Variable name", "NEW_TOKEN");
+	await click(button("Save"));
+	assert(document.body.textContent?.includes("Enter a replacement value"));
+	assert.equal(requests, 0);
+});

@@ -161,6 +161,26 @@ describe("Settings → Connections (write + status)", () => {
 		assert.match(broken!.error!, /not on this Mac/);
 	});
 
+	it("adds, changes, and removes environment entries while preserving masked secrets", async () => {
+		const file = writeConfig({ mcpServers: { fake: { ...fake, env: { API_TOKEN: "secret-value-1234", REGION: "ca", OLD: "remove me" } } } });
+		const next = await updateMcpServer("fake", { values: { API_TOKEN: "••••1234", REGION: "", ADDED: "new" }, removeEnv: ["OLD"] }, file);
+		assert.equal(next?.state, "connected");
+		const stored = JSON.parse(fs.readFileSync(file, "utf8")).mcpServers.fake;
+		assert.deepEqual(stored.env, { API_TOKEN: "secret-value-1234", REGION: "", ADDED: "new" });
+		assert.equal((next?.config as { env: Record<string, string> }).env.API_TOKEN, "••••1234");
+		assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+		const empty = await updateMcpServer("fake", { removeEnv: ["API_TOKEN", "REGION", "ADDED"] }, file);
+		assert.deepEqual(empty?.fields, []);
+	});
+
+	it("rejects malformed variable patches without changing the configuration", async () => {
+		const file = writeConfig({ mcpServers: { fake } });
+		const before = fs.readFileSync(file, "utf8");
+		await assert.rejects(updateMcpServer("fake", { removeEnv: "REGION" as unknown as string[] }, file), McpConfigError);
+		await assert.rejects(updateMcpServer("fake", { values: { REGION: 42 } as unknown as Record<string, string> }, file), McpConfigError);
+		assert.equal(fs.readFileSync(file, "utf8"), before);
+	});
+
 	it("renames and removes", async () => {
 		const file = writeConfig({ mcpServers: { fake } });
 		assert.equal((await updateMcpServer("fake", { rename: "echoer" }, file))?.name, "echoer");
