@@ -46,6 +46,10 @@ it("keyless settings keep Research interactive while search-engine setup retains
 				onCompactionChange={() => {}}
 			/>);
 		});
+		const cap = document.querySelector<HTMLInputElement>('[data-testid="input-compaction-threshold"]')!;
+		assert.equal(cap.value, "");
+		assert.equal(cap.getAttribute("placeholder"), "Automatic");
+		assert.match(document.querySelector('[data-testid="compaction-row-threshold"]')?.textContent ?? "", /Model context window minus 16,384 tokens/);
 		const row = document.querySelector<HTMLElement>('[data-testid="tool-row-research"]')!;
 		const toggle = row.querySelector<HTMLButtonElement>('[data-testid="toggle-tool-research"]')!;
 		assert.ok(toggle);

@@ -90,9 +90,8 @@ export interface EffectiveSettings {
 	models: Record<ModelSlotName, EffectiveSlot | null>;
 	appearance: EffectiveAppearance;
 	graph: Required<GraphSettings>;
-	/** Compaction (owner round 14): resolved concrete — absent record
-	 *  section resolves to the factory 150k. */
-	compaction: Required<CompactionSettings>;
+	/** Optional compaction cap; absent means use the selected model's window. */
+	compaction: CompactionSettings;
 }
 
 /** The conversation pair's chain (BYOK, owner 2026-09-22): the chat's own

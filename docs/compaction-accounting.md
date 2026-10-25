@@ -1,5 +1,15 @@
 # Compaction and usage accounting
 
+## Trigger
+
+By default, compaction starts above the selected model's context window minus
+16,384 tokens (Pi's default reserve). There is no factory fixed-token cap.
+Settings → Agent → Context accepts an optional **Compaction token cap**:
+the effective threshold is the smaller of that cap and the window-based limit.
+Clear the field to restore automatic behavior. Existing explicit caps are
+preserved. When the catalog has no context window, use the explicit cap or a
+150,000-token fallback. Retention and scheduling are unchanged.
+
 ## Retention
 
 `src/core/compaction.ts` locally ports the cutoff-selection behavior and relevant

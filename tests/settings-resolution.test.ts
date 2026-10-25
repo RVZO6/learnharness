@@ -268,3 +268,15 @@ describe("the graph channel gates (the wave's seam honoring)", () => {
 		assert.deepEqual(off.agent.graphTools, { enabled: false });
 	});
 });
+
+describe("compaction settings", () => {
+	it("leaves the token cap unset by default so the model window controls compaction", () => {
+		assert.equal(resolveSettings(null).compaction.thresholdTokens, undefined);
+		assert.equal(resolveSettings({ version: 1, compaction: {} }).compaction.thresholdTokens, undefined);
+	});
+
+	it("preserves explicit caps, including the former factory threshold", () => {
+		assert.equal(resolveSettings({ version: 1, compaction: { thresholdTokens: 150_000 } }).compaction.thresholdTokens, 150_000);
+		assert.equal(resolveSettings({ version: 1, compaction: { thresholdTokens: 500_000 } }).compaction.thresholdTokens, 500_000);
+	});
+});

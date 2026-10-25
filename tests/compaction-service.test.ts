@@ -173,10 +173,14 @@ describe("the compaction service", () => {
 		assert.ok(activeCompactionOf(record.messages)!.content.includes("SECOND SUMMARY"), "the newest rules");
 	});
 
-	it("effectiveThresholdTokens: the setting rules big windows; the window rule binds small ones", () => {
+	it("effectiveThresholdTokens: Pi window reserve by default, with an optional earlier cap", () => {
 		assert.equal(effectiveThresholdTokens(150_000, 200_000), 150_000);
 		assert.equal(effectiveThresholdTokens(150_000, 100_000), 100_000 - 16_384);
-		assert.equal(effectiveThresholdTokens(undefined, 200_000), 150_000);
+		assert.equal(effectiveThresholdTokens(undefined, 200_000), 200_000 - 16_384);
+		assert.equal(effectiveThresholdTokens(undefined, 1_000_000), 1_000_000 - 16_384);
+		assert.equal(effectiveThresholdTokens(2_000_000, 1_000_000), 1_000_000 - 16_384);
+		assert.equal(effectiveThresholdTokens(300_000, undefined), 300_000);
+		assert.equal(effectiveThresholdTokens(undefined, 8_000), 1);
 		assert.equal(effectiveThresholdTokens(undefined, undefined), 150_000);
 	});
 

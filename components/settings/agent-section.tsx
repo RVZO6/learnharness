@@ -606,8 +606,7 @@ export function AgentSection({
 
 
 	// Resolved through the SAME core resolver the server's effective
-	// settings use (the GraphSection precedent): the hint and placeholder
-	// report exactly the number the trigger waits for.
+	// settings use: absence means the model-window rule, not a fixed cap.
 	const resolvedCompaction = resolveSettings(
 		compaction === undefined ? null : { version: 1, compaction },
 	).compaction;
@@ -851,14 +850,14 @@ export function AgentSection({
 
 			<SettingsGroup label="Context" testid="group-context">
 				<SettingsRow
-					label="Compaction threshold"
-					hint={`${resolvedCompaction.thresholdTokens} tok`}
+					label="Compaction token cap"
+					hint={resolvedCompaction.thresholdTokens === undefined ? "Model context window minus 16,384 tokens" : `Up to ${resolvedCompaction.thresholdTokens} tok; model window minus 16,384 still applies`}
 					testid="compaction-row-threshold"
 				>
 					<CommitInput
 						type="number"
 						value={String(compaction?.thresholdTokens ?? "")}
-						placeholder={String(resolvedCompaction.thresholdTokens)}
+						placeholder="Automatic"
 						ariaLabel="compaction threshold"
 						testid="input-compaction-threshold"
 						onCommit={(v) => {

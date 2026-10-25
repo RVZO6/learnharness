@@ -339,18 +339,12 @@ export interface GraphSettings {
 }
 
 /**
- * COMPACTION (owner round 14, 2026-10-05): the context-fitting mechanic's
- * user-facing knob. One number — the trigger threshold in context tokens.
- * The effective trigger is min(this, model contextWindow − 16k reserve)
- * (owner ruling: on big models the setting rules; on small ones the
- * window rules before the provider overflows).
+ * Optional fixed-token cap for context compaction. Without a cap, use
+ * the selected model's context window minus Pi's 16,384-token reserve.
+ * An explicit cap can trigger earlier, never later than the window rule.
  *
- * FACTORY DEFAULT 150_000 (owner ruling).
- *
- * FLOOR 32_000 (implementer's call, the chunk-budget discipline): below
- * the kept tail (20k) + a summary the chat would re-compact every turn —
- * a burn, not a preference. NO CEILING: a huge threshold just means "fit
- * everything" until the window rule binds.
+ * FLOOR 32_000: compaction retains an approximately 20k-token tail.
+ * No ceiling: the model-window rule still limits a large explicit cap.
  */
 export interface CompactionSettings {
 	thresholdTokens?: number;
@@ -391,7 +385,7 @@ export interface FactorySettings {
 		};
 	};
 	graph: Required<GraphSettings>;
-	compaction: Required<CompactionSettings>;
+	compaction: CompactionSettings;
 }
 
 export const FACTORY_SETTINGS: FactorySettings = {
@@ -406,7 +400,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
 		mdRendering: { headingWeight: 900, boldColor: null, italicColor: null },
 	},
 	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096 },
-	compaction: { thresholdTokens: 150_000 },
+	compaction: {},
 };
 
 /** The chunk budget's validated floor (GraphSettings.extractionChunkTokens

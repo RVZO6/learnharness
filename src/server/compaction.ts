@@ -34,6 +34,7 @@ import {
 	buildCompactionPrompt,
 	compactionCutIndex,
 	COMPACTION_RESERVE_TOKENS,
+	UNKNOWN_WINDOW_COMPACTION_THRESHOLD_TOKENS,
 	estimateContextTokens,
 	estimateTokens,
 	newCompactionMarker,
@@ -133,14 +134,14 @@ export async function awaitCompaction(chatId: string): Promise<void> {
 	if (running) await running;
 }
 
-// ─── the effective threshold (owner ruling: min(setting, window − reserve)) ─
+// ─── the effective threshold (optional cap, window − reserve) ─
 
-/** Resolve the effective trigger. Unknown window → the setting alone
- *  (honest: no fake window — the catalog-index precedent). */
+/** Resolve the effective trigger. Unknown windows use an explicit cap,
+ *  or the legacy 150k fallback when neither limit is available. */
 export function effectiveThresholdTokens(settingTokens: number | undefined, contextWindowTokens: number | undefined): number {
-	const setting = settingTokens ?? 150_000;
-	if (contextWindowTokens === undefined) return setting;
-	return Math.min(setting, Math.max(contextWindowTokens - COMPACTION_RESERVE_TOKENS, 1));
+	if (contextWindowTokens === undefined) return settingTokens ?? UNKNOWN_WINDOW_COMPACTION_THRESHOLD_TOKENS;
+	const windowThreshold = Math.max(contextWindowTokens - COMPACTION_RESERVE_TOKENS, 1);
+	return settingTokens === undefined ? windowThreshold : Math.min(settingTokens, windowThreshold);
 }
 
 // ─── the estimate over the ACTIVE projection ────────────────────────────────
