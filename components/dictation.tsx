@@ -530,7 +530,6 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	const start = useCallback(async () => {
 		dictationActiveFlag = true;
 		setError(null);
-		setPhase("connecting");
 		reconnectsRef.current = 0;
 		bufferRef.current = []; // fresh run, fresh buffer (round 2)
 		pendingRef.current = []; // fresh run, fresh queue (mitigation A)
@@ -567,6 +566,9 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 				engineRef.current = "apple";
 			}
 		}
+		// Only now: setting it before the engine pick flashed the bar open
+		// and shut again whenever the run ended in the download prompt.
+		setPhase("connecting");
 		const micPromise = navigator.mediaDevices.getUserMedia({
 			audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
 		});
