@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { Hint } from "@/components/ui/hint";
 import {
@@ -71,22 +71,29 @@ function statusLine(s: ServerStatus): string {
 	return on === s.tools.length ? `${on} abilit${on === 1 ? "y" : "ies"}` : `${on} of ${s.tools.length} abilities`;
 }
 
-export function ConnectionsSection() {
-	const [servers, setServers] = useState<ServerStatus[] | null>(null);
+/** Dialog-scoped list snapshot. Never persisted or shared between Settings dialogs. */
+export interface ConnectionListCache { current: ServerStatus[] | null }
+
+export function ConnectionsSection({ cache }: { cache?: ConnectionListCache } = {}) {
+	const [servers, setServers] = useState<ServerStatus[] | null>(() => cache?.current ?? null);
 	const [view, setView] = useState<View>({ kind: "list" });
 	const [loadError, setLoadError] = useState<string | null>(null);
 
-	const load = useCallback(async () => {
-		try {
-			setServers((await api<{ servers: ServerStatus[] }>("/api/mcp")).servers);
-			setLoadError(null);
-		} catch (e) {
-			setLoadError(e instanceof Error ? e.message : "Could not load connections");
-		}
-	}, []);
 	useEffect(() => {
-		void load();
-	}, [load]);
+		if (cache) cache.current = servers;
+	}, [cache, servers]);
+
+	useEffect(() => {
+		let cancelled = false;
+		void api<{ servers: ServerStatus[] }>("/api/mcp").then((body) => {
+			if (cancelled) return;
+			setServers(body.servers);
+			setLoadError(null);
+		}).catch((e) => {
+			if (!cancelled) setLoadError(e instanceof Error ? e.message : "Could not load connections");
+		});
+		return () => { cancelled = true; };
+	}, []);
 
 	const replace = (server: ServerStatus, oldName = server.name) =>
 		setServers((list) => {

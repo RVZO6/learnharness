@@ -46,7 +46,7 @@ import type { ModelsSettings } from "@/src/core";
 import { MENU_CLOSE_EVENT, MENU_OPEN_EVENT } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { KeysSection } from "./keys-section.tsx";
-import { ConnectionsSection } from "./connections-section.tsx";
+import { ConnectionsSection, type ConnectionListCache } from "./connections-section.tsx";
 import { Hint } from "@/components/ui/hint";
 import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
 import { KeyboardSection } from "./keyboard-section.tsx";
@@ -154,6 +154,7 @@ export function SettingsDialogBody({
 	// MenuShell open-count — drives the content column's scroll lock.
 	const [openMenus, setOpenMenus] = useState(0);
 	const contentRef = useRef<HTMLDivElement | null>(null);
+	const connectionListCache = useRef<ConnectionListCache["current"]>(null);
 	// Scroll-lock (fix wave, owner ruling: the scrollbar MAY stay,
 	// scrolling must NOT happen, nothing may move): the content column
 	// keeps overflow-y-auto — the scrollbar and every width stay exactly
@@ -412,7 +413,7 @@ export function SettingsDialogBody({
 									hint="Let the teacher look things up in your other apps, like your course site or notes."
 									testid="section-connections"
 								>
-									<ConnectionsSection />
+									<ConnectionsSection cache={connectionListCache} />
 								</SettingsSection>
 							)}
 							{active === "appearance" && (
