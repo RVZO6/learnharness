@@ -409,7 +409,7 @@ export function SettingsDialogBody({
 							{active === "connections" && (
 								<SettingsSection
 									title="Connections"
-									hint="Let the teacher look things up in your other apps: your course site, reference manager, or notes. It uses them only when they help the lesson."
+									hint="Let the teacher look things up in your other apps, like your course site or notes."
 									testid="section-connections"
 								>
 									<ConnectionsSection />

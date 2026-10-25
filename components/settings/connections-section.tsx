@@ -8,7 +8,9 @@ import {
 	describeLaunch,
 	humanizeToolName,
 	parsePastedSetup,
+	safeServerName,
 	setupFields,
+	splitCommandLine,
 	type McpServerConfig,
 	type ParsedServer,
 } from "@/src/core";
@@ -22,8 +24,8 @@ import { SettingsGroup, Toggle } from "./controls";
  * tool reads as a plain "ability" with a reads / changes-things tag.
  * Technical detail (the stored entry, the server's output) stays folded.
  *
- * Four views in one section: the list, add (paste), review, and one
- * connection.
+ * Five views in one section: the list, add (paste), manual setup, review,
+ * and one connection.
  */
 
 interface ToolStatus {
@@ -47,7 +49,12 @@ interface ServerStatus {
 	fields: { where: "env" | "header"; key: string; label: string; secret: boolean; value: string }[];
 }
 
-type View = { kind: "list" } | { kind: "add" } | { kind: "review"; parsed: ParsedServer } | { kind: "detail"; name: string };
+type View =
+	| { kind: "list" }
+	| { kind: "add" }
+	| { kind: "manual" }
+	| { kind: "review"; parsed: ParsedServer }
+	| { kind: "detail"; name: string };
 
 const LINK = "text-xs text-muted-foreground/70 underline-offset-2 hover:text-foreground hover:underline disabled:opacity-40";
 const LINK_SMALL = "text-[10px] text-muted-foreground/60 underline-offset-2 hover:text-foreground hover:underline";
@@ -99,7 +106,26 @@ export function ConnectionsSection() {
 		});
 
 	if (view.kind === "add") {
-		return <AddView onBack={() => setView({ kind: "list" })} onParsed={(parsed) => setView({ kind: "review", parsed })} />;
+		return (
+			<AddView
+				onBack={() => setView({ kind: "list" })}
+				onParsed={(parsed) => setView({ kind: "review", parsed })}
+				onManual={() => setView({ kind: "manual" })}
+			/>
+		);
+	}
+	if (view.kind === "manual") {
+		return (
+			<ManualView
+				taken={new Set((servers ?? []).map((s) => s.name))}
+				onBack={() => setView({ kind: "add" })}
+				onCancel={() => setView({ kind: "list" })}
+				onAdded={(server) => {
+					replace(server);
+					setView({ kind: "detail", name: server.name });
+				}}
+			/>
+		);
 	}
 	if (view.kind === "review") {
 		return (
@@ -139,11 +165,6 @@ export function ConnectionsSection() {
 		<div data-testid="connections-list">
 			{loadError && <p role="alert" className="px-1 text-xs text-red-500">{loadError}</p>}
 			{servers === null && !loadError && <p className="px-1 text-xs text-muted-foreground/70">Loading connections…</p>}
-			{servers?.length === 0 && (
-				<p className="px-1 font-prose text-(length:--lh-prose-size) text-muted-foreground">
-					No connections yet. Add your course site, reference manager, or notes app, and the teacher can look things up in it during lessons.
-				</p>
-			)}
 			<div className="flex flex-col">
 				{servers?.map((s) => (
 					<ServerRow
@@ -224,7 +245,7 @@ function BackLink({ onClick, label }: { onClick: () => void; label: string }) {
 	);
 }
 
-function AddView({ onBack, onParsed }: { onBack: () => void; onParsed: (p: ParsedServer) => void }) {
+function AddView({ onBack, onParsed, onManual }: { onBack: () => void; onParsed: (p: ParsedServer) => void; onManual: () => void }) {
 	const [text, setText] = useState("");
 	const result = useMemo(() => parsePastedSetup(text), [text]);
 	const servers = result.kind === "link" || result.kind === "code" || result.kind === "command" ? result.servers : [];
@@ -242,9 +263,7 @@ function AddView({ onBack, onParsed }: { onBack: () => void; onParsed: (p: Parse
 		<div className="flex flex-col gap-2" data-testid="connections-add-view">
 			<BackLink onClick={onBack} label="Connections" />
 			<p className="font-prose text-(length:--lh-prose-size)">Add a connection</p>
-			<p className="text-xs text-muted-foreground">
-				Apps that work with Claude, ChatGPT, or Cursor have setup instructions with a link, a block of setup code, or a command. Paste any of them here.
-			</p>
+			<p className="text-xs text-muted-foreground">Paste the setup from the app’s MCP instructions: a link, setup code, or a command.</p>
 			<textarea
 				value={text}
 				onChange={(e) => setText(e.target.value)}
@@ -276,9 +295,9 @@ function AddView({ onBack, onParsed }: { onBack: () => void; onParsed: (p: Parse
 					</span>
 				)}
 			</div>
-			<p className="border-t border-border/60 pt-3 text-xs text-muted-foreground/70">
-				Not sure where to look? Search the app’s help for “MCP”. You can also ask an AI assistant: “How do I connect this app to an MCP client?”
-			</p>
+			<button type="button" onClick={onManual} data-testid="connections-manual" className={`self-start ${LINK}`}>
+				Set up manually instead
+			</button>
 		</div>
 	);
 }
@@ -307,7 +326,6 @@ function ReviewView({
 	);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const launch = describeLaunch(parsed.config);
 	const missing = fields.filter((f) => !values[f.key]?.trim()).length;
 
 	async function connect() {
@@ -334,18 +352,7 @@ function ReviewView({
 					className={`${INPUT} max-w-56`}
 				/>
 			</label>
-			<div className="rounded-sm border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-200/90">
-				{launch.kind === "program" ? (
-					<>
-						This runs a program on this Mac: <code className="font-mono text-foreground">{launch.what}</code>
-						{launch.source ? `, downloaded from ${launch.source}` : ""}. It can do anything a program on this Mac can do. Add connections only from sources you trust.
-					</>
-				) : (
-					<>
-						This connects to <code className="font-mono text-foreground">{launch.what}</code>. What the teacher looks up there, and what it sends, leaves this Mac. Add connections only from services you trust.
-					</>
-				)}
-			</div>
+			<LaunchWarning config={parsed.config} />
 			{fields.length > 0 && (
 				<SettingsGroup label={fields.length === 1 ? "It needs one thing from you" : `It needs ${fields.length} things from you`}>
 					{fields.map((f) => (
@@ -392,6 +399,195 @@ function ReviewView({
 					Cancel
 				</button>
 				{missing > 0 && <span className="text-xs text-muted-foreground/70">{missing === 1 ? "Fill in the empty field." : `Fill in the ${missing} empty fields.`}</span>}
+			</div>
+		</div>
+	);
+}
+
+function LaunchWarning({ config }: { config: McpServerConfig }) {
+	const launch = describeLaunch(config);
+	return (
+		<div className="rounded-sm border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-200/90">
+			{launch.kind === "program" ? (
+				<>
+					This runs a program on this Mac: <code className="font-mono text-foreground">{launch.what}</code>
+					{launch.source ? `, downloaded from ${launch.source}` : ""}. It can do anything a program on this Mac can do. Add connections only from sources you trust.
+				</>
+			) : (
+				<>
+					This connects to <code className="font-mono text-foreground">{launch.what}</code>. What the teacher looks up there, and what it sends, leaves this Mac. Add connections only from services you trust.
+				</>
+			)}
+		</div>
+	);
+}
+
+type ManualKind = "program" | "online";
+
+function ManualView({
+	taken,
+	onBack,
+	onCancel,
+	onAdded,
+}: {
+	taken: Set<string>;
+	onBack: () => void;
+	onCancel: () => void;
+	onAdded: (s: ServerStatus) => void;
+}) {
+	const [kind, setKind] = useState<ManualKind>("program");
+	const [name, setName] = useState("");
+	const [nameEdited, setNameEdited] = useState(false);
+	const [command, setCommand] = useState("");
+	const [vars, setVars] = useState<{ key: string; value: string }[]>([]);
+	const [url, setUrl] = useState("");
+	const [token, setToken] = useState("");
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	const config = useMemo<McpServerConfig | null>(() => {
+		if (kind === "online") {
+			if (!/^https?:\/\/\S+$/.test(url.trim())) return null;
+			return { url: url.trim(), ...(token.trim() ? { headers: { Authorization: `Bearer ${token.trim()}` } } : {}) };
+		}
+		const words = splitCommandLine(command.trim());
+		if (!words[0]) return null;
+		const env = Object.fromEntries(vars.filter((v) => v.key.trim()).map((v) => [v.key.trim(), v.value]));
+		return { command: words[0], ...(words.length > 1 ? { args: words.slice(1) } : {}), ...(Object.keys(env).length ? { env } : {}) };
+	}, [kind, command, vars, url, token]);
+
+	// The name follows the command or link until the user types their own.
+	const suggested = useMemo(() => {
+		const parsed = config ? parsePastedSetup(kind === "online" ? url : command) : null;
+		const base = parsed && "servers" in parsed ? parsed.servers[0]!.name : safeServerName(kind === "online" ? url : command);
+		let n = base;
+		for (let i = 2; taken.has(n); i++) n = `${base}-${i}`;
+		return n;
+	}, [config, kind, url, command, taken]);
+	const finalName = nameEdited ? name : config ? suggested : "";
+
+	async function connect() {
+		if (!config) return;
+		setBusy(true);
+		setError(null);
+		try {
+			onAdded((await api<{ server: ServerStatus }>("/api/mcp", { method: "POST", body: JSON.stringify({ name: finalName, config }) })).server);
+		} catch (e) {
+			setError(e instanceof Error ? e.message : "Failed");
+			setBusy(false);
+		}
+	}
+
+	const tab = (k: ManualKind, label: string) => (
+		<button
+			type="button"
+			onClick={() => setKind(k)}
+			aria-pressed={kind === k}
+			className={`rounded-sm px-2 py-1 font-ui text-xs transition-colors ${kind === k ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+		>
+			{label}
+		</button>
+	);
+
+	return (
+		<div className="flex flex-col gap-3" data-testid="connections-manual-view">
+			<BackLink onClick={onBack} label="Back" />
+			<p className="font-prose text-(length:--lh-prose-size)">Set up manually</p>
+			<div className="flex gap-1">
+				{tab("program", "Program on this Mac")}
+				{tab("online", "Online")}
+			</div>
+
+			{kind === "program" ? (
+				<>
+					<label className="flex flex-col gap-1">
+						<span className="font-ui text-xs text-foreground">Command</span>
+						<input
+							value={command}
+							onChange={(e) => setCommand(e.target.value)}
+							placeholder="npx -y some-mcp-server"
+							spellCheck={false}
+							autoFocus
+							data-testid="manual-command"
+							className={INPUT}
+						/>
+						<span className="text-xs text-muted-foreground/70">The program and its arguments, as you would type them in Terminal.</span>
+					</label>
+					<div className="flex flex-col gap-1">
+						<span className="font-ui text-xs text-foreground">Variables</span>
+						{vars.map((v, i) => (
+							<div key={i} className="flex items-center gap-2">
+								<input
+									value={v.key}
+									onChange={(e) => setVars((all) => all.map((x, j) => (j === i ? { ...x, key: e.target.value.replace(/\s/g, "_") } : x)))}
+									placeholder="NAME"
+									aria-label="Variable name"
+									spellCheck={false}
+									className={`${INPUT} max-w-48`}
+								/>
+								<input
+									type={/(key|token|secret|password)/i.test(v.key) ? "password" : "text"}
+									value={v.value}
+									onChange={(e) => setVars((all) => all.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
+									placeholder="value"
+									aria-label="Variable value"
+									autoComplete="off"
+									spellCheck={false}
+									className={INPUT}
+								/>
+								<button type="button" onClick={() => setVars((all) => all.filter((_, j) => j !== i))} aria-label="Remove variable" className={`shrink-0 ${LINK}`}>
+									×
+								</button>
+							</div>
+						))}
+						<button type="button" onClick={() => setVars((all) => [...all, { key: "", value: "" }])} className={`self-start ${LINK}`}>
+							+ Add variable
+						</button>
+					</div>
+				</>
+			) : (
+				<>
+					<label className="flex flex-col gap-1">
+						<span className="font-ui text-xs text-foreground">Link</span>
+						<input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/mcp" spellCheck={false} autoFocus data-testid="manual-url" className={INPUT} />
+					</label>
+					<label className="flex flex-col gap-1">
+						<span className="font-ui text-xs text-foreground">
+							Access token <span className="text-muted-foreground/60">(if the service gave you one)</span>
+						</span>
+						<input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" spellCheck={false} className={INPUT} />
+					</label>
+				</>
+			)}
+
+			<label className="flex items-center gap-2">
+				<span className="shrink-0 font-ui text-xs text-muted-foreground">Name</span>
+				<input
+					value={finalName}
+					onChange={(e) => {
+						setNameEdited(true);
+						setName(e.target.value.replace(/[^a-zA-Z0-9_-]/g, "-"));
+					}}
+					aria-label="Connection name"
+					className={`${INPUT} max-w-56`}
+				/>
+			</label>
+
+			{config && <LaunchWarning config={config} />}
+			{error && <p role="alert" className="text-xs text-red-500">{error}</p>}
+			<div className="flex items-center gap-4">
+				<button
+					type="button"
+					onClick={() => void connect()}
+					disabled={busy || !config || !finalName}
+					data-testid="manual-connect"
+					className="rounded-sm bg-foreground px-3 py-1 font-ui text-xs text-background disabled:opacity-40"
+				>
+					{busy ? "Connecting…" : "Connect"}
+				</button>
+				<button type="button" onClick={onCancel} disabled={busy} className={LINK}>
+					Cancel
+				</button>
 			</div>
 		</div>
 	);
