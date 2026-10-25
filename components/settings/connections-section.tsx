@@ -175,7 +175,7 @@ export function ConnectionsSection() {
 					/>
 				))}
 			</div>
-			<button type="button" onClick={() => setView({ kind: "add" })} data-testid="connections-add" className="mt-2 px-1 text-xs text-foreground underline-offset-2 hover:underline">
+			<button type="button" onClick={() => setView({ kind: "add" })} data-testid="connections-add" className="block text-xs text-foreground underline-offset-2 hover:underline">
 				+ Add a connection
 			</button>
 		</div>
