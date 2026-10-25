@@ -31,6 +31,8 @@ function isToolUIPart(part: UIMessage["parts"][number]): boolean {
  * contracts/jobs.ts "THE ASYNC PROTOCOL"), so job tools are NOT returned
  * here. This file carries only the question gate and the shared scan helper.
  */
+import { mcpServerOfTool } from "./mcp-setup.ts";
+
 export interface PendingToolCall {
 	toolCallId: string;
 	tool: string;
@@ -157,7 +159,8 @@ const ACTIVITY_LABELS: Record<string, string> = {
  *  part renders in the dock, never a live card. */
 export function toolActivityLabel(tool: string): string {
 	if ((QUESTION_TOOLS as readonly string[]).includes(tool)) return "Writing a question…";
-	if (tool.startsWith("mcp__")) return "Using an external tool…";
+	const server = mcpServerOfTool(tool);
+	if (server) return `Looking in ${server[0]!.toUpperCase()}${server.slice(1).replace(/[-_]+/g, " ")}…`;
 	return ACTIVITY_LABELS[tool] ?? "Working…";
 }
 

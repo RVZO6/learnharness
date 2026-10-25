@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronRight } from "lucide-react";
-import type { ArtifactPartProps } from "@/src/core";
+import { humanizeToolName, mcpServerOfTool, type ArtifactPartProps } from "@/src/core";
 
 /**
  * The generic tool-call card (sources v1, 2026-09-19): a quiet, collapsed
@@ -64,7 +64,10 @@ function outputText(output: unknown): string | null {
 export function ToolCallCard({ part }: ArtifactPartProps) {
 	const p = part as ToolCallPart;
 	const tool = p.type.replace(/^tool-/, "");
-	const arg = headlineArg(tool, p.input);
+	// MCP tools (mcp__<server>__<tool>): the connection name stands where the
+	// tool name would, and the tool reads as a plain phrase.
+	const server = mcpServerOfTool(tool);
+	const arg = server ? humanizeToolName(tool.slice(`mcp__${server}__`.length)).toLowerCase() : headlineArg(tool, p.input);
 	const out = outputText(p.output);
 	const failed = p.state === "output-error" || typeof p.errorText === "string";
 	return (
@@ -75,7 +78,7 @@ export function ToolCallCard({ part }: ArtifactPartProps) {
 		>
 			<summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-muted-foreground [&::-webkit-details-marker]:hidden">
 				<span className={`font-medium uppercase tracking-wide ${failed ? "text-red-500" : ""}`}>
-					{tool}
+					{server ?? tool}
 				</span>
 				{arg && <span className="truncate">{arg}</span>}
 				<ChevronRight className="size-3 shrink-0 opacity-50 transition-transform group-open:rotate-90" />

@@ -79,3 +79,6 @@ export * from "./coverage.ts";
 // ONE session→markdown formatter — the extractor's view and the user-facing
 // export share it. Pure, browser-safe.
 export * from "./session-markdown.ts";
+// MCP connection setup (Settings → Connections + src/server/mcp.ts): paste
+// parsing, setup fields, and the plain-language tool view. Pure, browser-safe.
+export * from "./mcp-setup.ts";

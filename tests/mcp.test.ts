@@ -11,7 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createFauxCore } from "@earendil-works/pi-ai";
-import { closeMcp, mcpToolName, mcpTools, parseMcpConfig } from "../src/server/mcp.ts";
+import { addMcpServer, closeMcp, McpConfigError, mcpStatus, mcpToolName, mcpTools, parseMcpConfig, removeMcpServer, updateMcpServer } from "../src/server/mcp.ts";
 import { createTeacherAgent } from "../src/agent/teacher-agent.ts";
 import type { PiEngine } from "../src/agent/models.ts";
 import { toolActivityLabel } from "../src/core/pending.ts";
@@ -95,10 +95,10 @@ describe("mcpTools", () => {
 		assert.deepEqual(tools.map((t) => t.name), ["mcp__fake__echo", "mcp__fake__fail"]);
 	});
 
-	it("returns the cached set until the file changes, then reconnects", async () => {
+	it("keeps live servers across edits, and reconnects only what changed", async () => {
 		const file = writeConfig({ mcpServers: { fake } });
 		const first = await mcpTools(file);
-		assert.equal(await mcpTools(file), first);
+		assert.deepEqual((await mcpTools(file)).map((t) => t.name), first.map((t) => t.name));
 
 		fs.writeFileSync(file, JSON.stringify({ mcpServers: { other: fake } }));
 		fs.utimesSync(file, new Date(), new Date(Date.now() + 5_000));
@@ -108,6 +108,45 @@ describe("mcpTools", () => {
 
 	it("an invalid config logs and yields no tools", async () => {
 		assert.deepEqual(await mcpTools(writeConfig({ mcpServers: [] })), []);
+	});
+});
+
+describe("Settings → Connections (write + status)", () => {
+	it("adds a server, answers after its first connect, and masks secrets", async () => {
+		const file = writeConfig({});
+		const added = await addMcpServer("fake", { ...fake, env: { API_TOKEN: "secret-value-1234", REGION: "ca" } }, file);
+		assert.equal(added.state, "connected");
+		assert.deepEqual(added.tools.map((t) => t.name), ["echo", "fail"]);
+		assert.equal((added.config as { env: Record<string, string> }).env.API_TOKEN, "••••1234");
+		assert.equal((added.config as { env: Record<string, string> }).env.REGION, "ca");
+		assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+		await assert.rejects(addMcpServer("fake", fake, file), McpConfigError);
+	});
+
+	it("turns single tools off without restarting the server, and off/on the whole server", async () => {
+		const file = writeConfig({ mcpServers: { fake } });
+		await mcpTools(file);
+		const off = await updateMcpServer("fake", { tools: { fail: false } }, file);
+		assert.deepEqual(off?.tools.map((t) => [t.name, t.enabled]), [["echo", true], ["fail", false]]);
+		assert.deepEqual((await mcpTools(file)).map((t) => t.name), ["mcp__fake__echo"]);
+		const disabled = await updateMcpServer("fake", { disabled: true }, file);
+		assert.equal(disabled?.state, "off");
+		assert.deepEqual(await mcpTools(file), []);
+		assert.equal((await updateMcpServer("fake", { disabled: false }, file))?.state, "connected");
+	});
+
+	it("explains a missing program in plain words", async () => {
+		const file = writeConfig({ mcpServers: { broken: { command: "npx-not-installed-here" } } });
+		const [broken] = await mcpStatus(file);
+		assert.equal(broken!.state, "error");
+		assert.match(broken!.error!, /not on this Mac/);
+	});
+
+	it("renames and removes", async () => {
+		const file = writeConfig({ mcpServers: { fake } });
+		assert.equal((await updateMcpServer("fake", { rename: "echoer" }, file))?.name, "echoer");
+		await removeMcpServer("echoer", file);
+		assert.deepEqual(await mcpStatus(file), []);
 	});
 });
 
@@ -124,6 +163,6 @@ describe("extraTools in the agent", () => {
 	});
 
 	it("labels a running MCP tool in the transcript", () => {
-		assert.equal(toolActivityLabel("mcp__canvas__get_course"), "Using an external tool…");
+		assert.equal(toolActivityLabel("mcp__canvas__get_course"), "Looking in Canvas…");
 	});
 });

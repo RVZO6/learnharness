@@ -18,6 +18,7 @@ import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-e
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { BrailleSpinner } from "@/components/braille-spinner";
 import { LiveToolCard } from "@/components/artifacts/live-tool-card";
+import { ToolCallCard } from "@/components/artifacts/tool-call-card";
 import { Separator } from "@/components/ui/separator";
 import { AnsweredCard } from "@/components/answered-card";
 import { artifactRenderers } from "@/components/artifacts";
@@ -1527,7 +1528,9 @@ export function Chat({
 														// parts and future artifacts render via the
 														// registry — add renderers there, not here.
 														if (part.type.startsWith("tool-")) {
-															const Renderer = artifactRenderers[part.type.slice("tool-".length)];
+															const name = part.type.slice("tool-".length);
+															// MCP tools have no registry entry: one quiet card each.
+															const Renderer = artifactRenderers[name] ?? (name.startsWith("mcp__") ? ToolCallCard : undefined);
 															if (Renderer) return <Renderer key={pi} part={part as ArtifactPartProps["part"]} />;
 														}
 														return null;

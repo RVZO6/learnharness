@@ -44,3 +44,15 @@ export { runPiTurn, piTurnResponse, type PiTurnHandle, type PiTurnSpec } from ".
 export * from "./observability.ts";
 export * from "./model-catalog.ts";
 export { sessionCost } from "./pricing.ts";
+// MCP connections (Settings → Connections, app/api/mcp).
+export {
+	mcpStatus,
+	addMcpServer,
+	updateMcpServer,
+	removeMcpServer,
+	retryMcpServer,
+	McpConfigError,
+	type McpServerStatus,
+	type McpToolStatus,
+	type McpServerPatch,
+} from "./mcp.ts";
