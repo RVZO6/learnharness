@@ -157,6 +157,7 @@ const ACTIVITY_LABELS: Record<string, string> = {
  *  part renders in the dock, never a live card. */
 export function toolActivityLabel(tool: string): string {
 	if ((QUESTION_TOOLS as readonly string[]).includes(tool)) return "Writing a question…";
+	if (tool.startsWith("mcp__")) return "Using an external tool…";
 	return ACTIVITY_LABELS[tool] ?? "Working…";
 }
 

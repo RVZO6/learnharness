@@ -59,6 +59,22 @@ All three platforms support in-app updates.
 - **External services.** Models run through your configured providers. Model requests send the context needed for the task; web research and dictation also contact external services. Local storage does not mean offline processing.
 - **Inspectable behavior.** System prompts are visible and editable. The app is open source under the AGPL-3.0 license.
 
+## MCP servers
+
+The teaching and practice agents can use tools from your own MCP servers, for example a course system or a notes app. Add them to `mcp.json` in the data folder (macOS: `~/Library/Application Support/LearnHarness/data/mcp.json`), in the same shape other MCP clients use:
+
+```json
+{
+	"mcpServers": {
+		"canvas": { "command": "canvas-mcp", "args": [], "env": {} },
+		"notes": { "url": "https://example.com/mcp", "headers": {} },
+		"paused": { "command": "some-server", "disabled": true }
+	}
+}
+```
+
+Tools appear to the agent as `mcp__<server>__<tool>`. The file is read again on the next turn after you edit it. A server that fails to start is logged and skipped; the others still load.
+
 ## Development and support
 
 ```bash

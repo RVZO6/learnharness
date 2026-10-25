@@ -112,6 +112,13 @@ export const GRAPH_FORMAT_FILE = path.join(PATHS.graph, "format.json");
 export const SETTINGS_FILE = path.join(DATA_ROOT, "settings.json");
 
 /**
+ * MCP servers (src/server/mcp.ts): the common `{ "mcpServers": { … } }`
+ * shape other MCP clients use, hand-edited. Absent file = no MCP tools.
+ * Re-read when its mtime changes, so an edit lands on the next turn.
+ */
+export const MCP_CONFIG_FILE = path.join(DATA_ROOT, "mcp.json");
+
+/**
  * User prompt-override files (settings-storage wave, 2026-09-19): the
  * per-segment system-prompt overrides mirroring the SOURCE layout
  * (src/agent/prompts/) — the shared base as prompts/system-prompt.md,

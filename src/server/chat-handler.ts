@@ -33,6 +33,7 @@ import { providerEventNote } from "../agent/provider-events.ts";
 import { effectiveSettings, stores } from "./stores.ts";
 import { searchAvailable, searchProvider } from "./search.ts";
 import { providerKeyPresent } from "./keys.ts";
+import { mcpTools } from "./mcp.ts";
 import {
 	extractionEnabled,
 	graphToolsEnabled,
@@ -177,6 +178,10 @@ export async function handleChatInput(
 	input: TurnInput,
 	buildAgent?: (opts: AgentBuildOptions & { teaching: boolean }) => TeachingAgent,
 ): Promise<Response> {
+	// The learner's MCP tools (src/server/mcp.ts) resolve FIRST, before the
+	// record read: the only await that can take seconds (first connect or a
+	// config edit) must not sit between reading the record and acting on it.
+	const extraTools = await mcpTools();
 	let record = stores.chatStore.getChat(chatId);
 	if (!record) {
 		return Response.json({ error: "Unknown chat" }, { status: 404 });
@@ -380,6 +385,7 @@ export async function handleChatInput(
 		messages: asAgentMessages(merged),
 		onUsage: collectUsage,
 		toolToggles: effective.agent.tools,
+		extraTools,
 		// Debug (owner, 2026-10-04): teacher/prober raw provider events under
 		// LH_PROVIDER_EVENTS=1 (provider-events.ts); no-op otherwise.
 		chatId,

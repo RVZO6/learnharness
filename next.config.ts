@@ -96,6 +96,7 @@ const nextConfig: NextConfig = {
 	serverExternalPackages: [
 		"@earendil-works/pi-ai",
 		"@earendil-works/pi-agent-core",
+		"@earendil-works/pi-mcp", // spawns stdio MCP servers; same treatment as its pi siblings
 		"pdfjs-dist", // sources v0: bundling breaks its node fake-worker path
 		"@napi-rs/canvas", // native binding — bundling breaks the .node require
 		"@resvg/resvg-js", // native binding — same
