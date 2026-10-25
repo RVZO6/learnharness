@@ -46,6 +46,7 @@ import type { ModelsSettings } from "@/src/core";
 import { MENU_CLOSE_EVENT, MENU_OPEN_EVENT } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { KeysSection } from "./keys-section.tsx";
+import { ConnectionsSection } from "./connections-section.tsx";
 import { Hint } from "@/components/ui/hint";
 import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
 import { KeyboardSection } from "./keyboard-section.tsx";
@@ -58,6 +59,7 @@ import { NativeSubscriptionUIProvider } from "./subscription-connections.tsx";
 const SECTIONS = [
 	{ id: "keys", label: "Providers" },
 	{ id: "agent", label: "Agent" },
+	{ id: "connections", label: "Connections" },
 	{ id: "appearance", label: "Appearance" },
 	{ id: "graph", label: "Graph" },
 	{ id: "keyboard", label: "Keyboard", hint: "Stored on this device" },
@@ -402,6 +404,15 @@ export function SettingsDialogBody({
 											void write("compaction", next)
 										}
 									/>
+								</SettingsSection>
+							)}
+							{active === "connections" && (
+								<SettingsSection
+									title="Connections"
+									hint="Let the teacher look things up in your other apps: your course site, reference manager, or notes. It uses them only when they help the lesson."
+									testid="section-connections"
+								>
+									<ConnectionsSection />
 								</SettingsSection>
 							)}
 							{active === "appearance" && (
