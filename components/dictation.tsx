@@ -896,9 +896,8 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 						onClick={cancel}
 						aria-label="Stop waiting for the speech model"
 						data-testid="dictation-download-cancel"
-						className="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-card/50 px-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+						className="flex h-7 shrink-0 items-center rounded-md bg-card/50 px-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
 					>
-						<Loader2Icon className="size-3.5 animate-spin" />
 						Cancel
 					</button>
 				</Hint>
