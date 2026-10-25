@@ -61,6 +61,12 @@ describe("parsePastedSetup", () => {
 		]);
 	});
 
+	it("omits script extensions from suggested connection names", () => {
+		assert.equal(servers('node "/tmp/fake-server.mjs"')[0]!.name, "fake-server");
+		assert.equal(servers("python /tmp/notes.py")[0]!.name, "notes");
+		assert.equal(servers("npx -y notes-mcp@1.2.3")[0]!.name, "notes");
+	});
+
 	it("explains what it could not read", () => {
 		assert.equal(parsePastedSetup("").kind, "empty");
 		assert.equal(parsePastedSetup("{ broken").kind, "unknown");

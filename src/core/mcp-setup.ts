@@ -225,7 +225,7 @@ function nameFromUrl(url: string): string {
 function nameFromCommand(command: string, args: string[]): string {
 	const pkg = args.find((a) => !a.startsWith("-") && !/^(run|exec|dlx|x|--)$/.test(a));
 	const raw = pkg ?? command;
-	return safeServerName(raw.replace(/@[\d^~][^/]*$/, "").split("/").pop() ?? raw);
+	return safeServerName((raw.replace(/@[\d^~][^/]*$/, "").split("/").pop() ?? raw).replace(/\.(?:[cm]?js|ts|py|sh)$/i, ""));
 }
 
 /** Shell-like word split: quotes and backslash escapes, no expansion. */
