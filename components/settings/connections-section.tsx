@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { Hint } from "@/components/ui/hint";
 import {
@@ -58,6 +58,7 @@ type View =
 
 const LINK = "text-xs text-muted-foreground/70 underline-offset-2 hover:text-foreground hover:underline disabled:opacity-40";
 const LINK_SMALL = "text-[10px] text-muted-foreground/60 underline-offset-2 hover:text-foreground hover:underline";
+const CONNECTION_VIEW = "flex flex-col gap-2";
 const INPUT =
 	"h-7 w-full min-w-0 rounded-sm border border-border bg-background px-1.5 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-muted-foreground/50";
 
@@ -260,7 +261,7 @@ function AddView({ onBack, onParsed, onManual }: { onBack: () => void; onParsed:
 						: `setup code for ${servers.length} connections`
 					: "";
 	return (
-		<div className="flex flex-col gap-2" data-testid="connections-add-view">
+		<div className={CONNECTION_VIEW} data-testid="connections-add-view">
 			<BackLink onClick={onBack} label="Connections" />
 			<p className="font-prose text-(length:--lh-prose-size)">Add a connection</p>
 			<p className="text-xs text-muted-foreground">Paste the setup from the app’s MCP instructions: a link, setup code, or a command.</p>
@@ -341,7 +342,7 @@ function ReviewView({
 	}
 
 	return (
-		<div className="flex flex-col gap-3" data-testid="connections-review">
+		<div className={CONNECTION_VIEW} data-testid="connections-review">
 			<BackLink onClick={onBack} label="Back" />
 			<label className="flex items-center gap-2">
 				<span className="shrink-0 font-ui text-xs text-muted-foreground">Name</span>
@@ -424,6 +425,21 @@ function LaunchWarning({ config }: { config: McpServerConfig }) {
 
 type ManualKind = "program" | "online";
 
+/** Overlap both variants so hidden fields still reserve their natural size.
+ * Inactive controls are not exposed to focus or assistive technology. */
+function ManualSlot({ kind, program, online }: { kind: ManualKind; program: ReactNode; online: ReactNode }) {
+	return (
+		<div className="grid">
+			<div className={`col-start-1 row-start-1 min-w-0 ${kind !== "program" ? "invisible" : ""}`} inert={kind !== "program"} aria-hidden={kind !== "program"}>
+				{program}
+			</div>
+			<div className={`col-start-1 row-start-1 min-w-0 ${kind !== "online" ? "invisible" : ""}`} inert={kind !== "online"} aria-hidden={kind !== "online"}>
+				{online}
+			</div>
+		</div>
+	);
+}
+
 function ManualView({
 	taken,
 	onBack,
@@ -445,16 +461,23 @@ function ManualView({
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
-	const config = useMemo<McpServerConfig | null>(() => {
-		if (kind === "online") {
-			if (!/^https?:\/\/\S+$/.test(url.trim())) return null;
-			return { url: url.trim(), ...(token.trim() ? { headers: { Authorization: `Bearer ${token.trim()}` } } : {}) };
-		}
+	const commandInput = useRef<HTMLInputElement>(null);
+	const urlInput = useRef<HTMLInputElement>(null);
+	useEffect(() => {
+		(kind === "program" ? commandInput : urlInput).current?.focus();
+	}, [kind]);
+
+	const onlineConfig = useMemo<McpServerConfig | null>(() => {
+		if (!/^https?:\/\/\S+$/.test(url.trim())) return null;
+		return { url: url.trim(), ...(token.trim() ? { headers: { Authorization: `Bearer ${token.trim()}` } } : {}) };
+	}, [url, token]);
+	const programConfig = useMemo<McpServerConfig | null>(() => {
 		const words = splitCommandLine(command.trim());
 		if (!words[0]) return null;
 		const env = Object.fromEntries(vars.filter((v) => v.key.trim()).map((v) => [v.key.trim(), v.value]));
 		return { command: words[0], ...(words.length > 1 ? { args: words.slice(1) } : {}), ...(Object.keys(env).length ? { env } : {}) };
-	}, [kind, command, vars, url, token]);
+	}, [command, vars]);
+	const config = kind === "program" ? programConfig : onlineConfig;
 
 	// The name follows the command or link until the user types their own.
 	const suggested = useMemo(() => {
@@ -490,7 +513,7 @@ function ManualView({
 	);
 
 	return (
-		<div className="flex flex-col gap-3" data-testid="connections-manual-view">
+		<div className={CONNECTION_VIEW} data-testid="connections-manual-view">
 			<BackLink onClick={onBack} label="Back" />
 			<p className="font-prose text-(length:--lh-prose-size)">Set up manually</p>
 			<div className="flex gap-1">
@@ -498,8 +521,9 @@ function ManualView({
 				{tab("online", "Online")}
 			</div>
 
-			{kind === "program" ? (
-				<>
+			<ManualSlot
+				kind={kind}
+				program={
 					<label className="flex flex-col gap-1">
 						<span className="font-ui text-xs text-foreground">Command</span>
 						<input
@@ -507,12 +531,23 @@ function ManualView({
 							onChange={(e) => setCommand(e.target.value)}
 							placeholder="npx -y some-mcp-server"
 							spellCheck={false}
-							autoFocus
+							ref={commandInput}
 							data-testid="manual-command"
 							className={INPUT}
 						/>
 						<span className="text-xs text-muted-foreground/70">The program and its arguments, as you would type them in Terminal.</span>
 					</label>
+				}
+				online={
+					<label className="flex flex-col gap-1">
+						<span className="font-ui text-xs text-foreground">Link</span>
+						<input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/mcp" spellCheck={false} ref={urlInput} data-testid="manual-url" className={INPUT} />
+					</label>
+				}
+			/>
+			<ManualSlot
+				kind={kind}
+				program={
 					<div className="flex flex-col gap-1">
 						<span className="font-ui text-xs text-foreground">Variables</span>
 						{vars.map((v, i) => (
@@ -544,21 +579,16 @@ function ManualView({
 							+ Add variable
 						</button>
 					</div>
-				</>
-			) : (
-				<>
-					<label className="flex flex-col gap-1">
-						<span className="font-ui text-xs text-foreground">Link</span>
-						<input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/mcp" spellCheck={false} autoFocus data-testid="manual-url" className={INPUT} />
-					</label>
+				}
+				online={
 					<label className="flex flex-col gap-1">
 						<span className="font-ui text-xs text-foreground">
 							Access token <span className="text-muted-foreground/60">(if the service gave you one)</span>
 						</span>
 						<input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" spellCheck={false} className={INPUT} />
 					</label>
-				</>
-			)}
+				}
+			/>
 
 			<label className="flex items-center gap-2">
 				<span className="shrink-0 font-ui text-xs text-muted-foreground">Name</span>
@@ -573,7 +603,13 @@ function ManualView({
 				/>
 			</label>
 
-			{config && <LaunchWarning config={config} />}
+			{(programConfig || onlineConfig) && (
+				<ManualSlot
+					kind={kind}
+					program={programConfig && <LaunchWarning config={programConfig} />}
+					online={onlineConfig && <LaunchWarning config={onlineConfig} />}
+				/>
+			)}
 			{error && <p role="alert" className="text-xs text-red-500">{error}</p>}
 			<div className="flex items-center gap-4">
 				<button
