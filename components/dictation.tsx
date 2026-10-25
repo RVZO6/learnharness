@@ -704,7 +704,9 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	}, [phase, cleanup]);
 
 	const cancel = useCallback(() => {
-		if (phase === "idle") return;
+		// dictationActiveFlag also covers a run still choosing its engine
+		// (the phase stays idle until the pick).
+		if (phase === "idle" && !dictationActiveFlag) return;
 		// Discard first, teardown second — cleanup() flushes, and the now-empty
 		// buffer makes that flush a no-op. Also kills a "stopping" run: the
 		// flush already underway is abandoned (its timer is cleared inside).
