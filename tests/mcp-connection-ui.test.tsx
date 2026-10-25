@@ -269,3 +269,43 @@ test("duplicate names and secret renames without a replacement do not submit", a
 	assert(document.body.textContent?.includes("Enter a replacement value"));
 	assert.equal(requests, 0);
 });
+
+test("connection details replace the section heading and put Back beside the connection title", async () => {
+	const server = {
+		name: "canvas", state: "connected", transport: "online", summary: "", details: "",
+		config: { url: "https://example.com/mcp" }, fields: [],
+		tools: [{ name: "list_courses", title: "List Courses", description: "List courses for the authenticated user.", kind: "reads", enabled: true }],
+	};
+	await mount([server], false);
+	const hint = "Let the teacher look things up in your other apps, like your course site or notes.";
+	assert.equal(byTest("section-connections").querySelector("h2")?.textContent, "Connections");
+	assert(document.body.textContent?.includes(hint));
+	const row = byTest("connection-canvas");
+	assert(!row.querySelector('[role="switch"]'), "the list must not duplicate the connection switch");
+	assert(row.textContent?.includes("connected"));
+	assert(row.textContent?.includes("1 ability"));
+	await click(row.querySelector("button")!);
+	const detail = byTest("connection-detail");
+	const title = detail.querySelector("h2")!;
+	const back = labelled("Back to Connections");
+	assert.equal(title.textContent, "Canvas");
+	assert.equal(detail.firstElementChild, back.parentElement?.parentElement);
+	assert.equal(back.nextElementSibling, title.parentElement);
+	assert.equal(back.textContent, "←");
+	assert(!document.body.textContent?.includes(hint));
+	assert.equal(byTest("section-connections").querySelectorAll("h2").length, 1);
+	assert(!byTest("connections-list"));
+	assert(labelled("canvas connection"));
+	assert(byTest("ability-list_courses"));
+	globalThis.fetch = async (_url, init) => {
+		assert.deepEqual(JSON.parse(String(init?.body)), { disabled: true });
+		return Response.json({ server: { ...server, state: "off" } });
+	};
+	await click(labelled("canvas connection"));
+	assert.equal(labelled("canvas connection").getAttribute("aria-checked"), "false");
+	assert((labelled("canvas list_courses") as HTMLButtonElement).disabled);
+	await click(back);
+	assert.equal(byTest("section-connections").querySelector("h2")?.textContent, "Connections");
+	assert(document.body.textContent?.includes(hint));
+	assert(byTest("connection-canvas").textContent?.includes("off"));
+});

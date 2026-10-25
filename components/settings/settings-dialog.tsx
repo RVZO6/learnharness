@@ -408,13 +408,7 @@ export function SettingsDialogBody({
 								</SettingsSection>
 							)}
 							{active === "connections" && (
-								<SettingsSection
-									title="Connections"
-									hint="Let the teacher look things up in your other apps, like your course site or notes."
-									testid="section-connections"
-								>
-									<ConnectionsSection cache={connectionListCache} />
-								</SettingsSection>
+								<ConnectionsSection cache={connectionListCache} />
 							)}
 							{active === "appearance" && (
 								<SettingsSection

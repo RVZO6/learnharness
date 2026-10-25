@@ -11,7 +11,7 @@ import {
 	splitCommandLine,
 	type McpServerConfig,
 } from "@/src/core";
-import { SettingsGroup, Toggle } from "./controls";
+import { SettingsGroup, SettingsSection, Toggle } from "./controls";
 
 /**
  * Settings → Connections: the learner's MCP servers (src/server/mcp.ts via
@@ -107,52 +107,56 @@ export function ConnectionsSection({ cache }: { cache?: ConnectionListCache } = 
 		const server = servers?.find((s) => s.name === view.name);
 		if (server) {
 			return (
-				<DetailView
-					server={server}
-					onBack={() => setView({ kind: "list" })}
-					onChange={(next, oldName) => {
-						replace(next, oldName);
-						if (next.name !== view.name) setView({ kind: "detail", name: next.name });
-					}}
-					onRemoved={() => {
-						setServers((list) => (list ?? []).filter((s) => s.name !== view.name));
-						setView({ kind: "list" });
-					}}
-				/>
+				<section className="px-6 py-5" data-testid="section-connections">
+					<DetailView
+						server={server}
+						onBack={() => setView({ kind: "list" })}
+						onChange={(next, oldName) => {
+							replace(next, oldName);
+							if (next.name !== view.name) setView({ kind: "detail", name: next.name });
+						}}
+						onRemoved={() => {
+							setServers((list) => (list ?? []).filter((s) => s.name !== view.name));
+							setView({ kind: "list" });
+						}}
+					/>
+				</section>
 			);
 		}
 	}
 
 	return (
-		<div data-testid="connections-list">
-			{loadError && <p role="alert" className="px-1 text-xs text-red-500">{loadError}</p>}
-			{servers === null && !loadError && <p className="px-1 text-xs text-muted-foreground/70">Loading connections…</p>}
-			<div className="flex flex-col">
-				{servers?.map((s) => (
-					<ServerRow
-						key={s.name}
-						server={s}
-						onOpen={() => setView({ kind: "detail", name: s.name })}
-						onChange={(next) => replace(next)}
-					/>
-				))}
-			</div>
-			<button type="button" onClick={() => setView({ kind: view.kind === "add" ? "list" : "add" })} aria-expanded={view.kind === "add"} aria-controls="connection-add-form" data-testid="connections-add" className={`block px-1 text-xs text-foreground underline-offset-2 hover:underline${servers?.length ? " mt-2" : ""}`}>
-				{view.kind === "add" ? "← Connections" : "+ Add a connection"}
-			</button>
-			{view.kind === "add" && (
-				<div id="connection-add-form" className="mt-2 px-1">
-					<ManualView
-						taken={new Set((servers ?? []).map((s) => s.name))}
-						onCancel={() => setView({ kind: "list" })}
-						onAdded={(server) => {
-							replace(server);
-							setView({ kind: "detail", name: server.name });
-						}}
-					/>
+		<SettingsSection title="Connections" hint="Let the teacher look things up in your other apps, like your course site or notes." testid="section-connections">
+			<div data-testid="connections-list">
+				{loadError && <p role="alert" className="px-1 text-xs text-red-500">{loadError}</p>}
+				{servers === null && !loadError && <p className="px-1 text-xs text-muted-foreground/70">Loading connections…</p>}
+				<div className="flex flex-col">
+					{servers?.map((s) => (
+						<ServerRow
+							key={s.name}
+							server={s}
+							onOpen={() => setView({ kind: "detail", name: s.name })}
+							onChange={(next) => replace(next)}
+						/>
+					))}
 				</div>
-			)}
-		</div>
+				<button type="button" onClick={() => setView({ kind: view.kind === "add" ? "list" : "add" })} aria-expanded={view.kind === "add"} aria-controls="connection-add-form" data-testid="connections-add" className={`block px-1 text-xs text-foreground underline-offset-2 hover:underline${servers?.length ? " mt-2" : ""}`}>
+					{view.kind === "add" ? "← Connections" : "+ Add a connection"}
+				</button>
+				{view.kind === "add" && (
+					<div id="connection-add-form" className="mt-2 px-1">
+						<ManualView
+							taken={new Set((servers ?? []).map((s) => s.name))}
+							onCancel={() => setView({ kind: "list" })}
+							onAdded={(server) => {
+								replace(server);
+								setView({ kind: "detail", name: server.name });
+							}}
+						/>
+					</div>
+				)}
+			</div>
+		</SettingsSection>
 	);
 }
 
@@ -177,16 +181,12 @@ function ServerRow({ server: s, onOpen, onChange }: { server: ServerStatus; onOp
 						<span className="block font-ui text-xs text-foreground">{displayName(s.name)}</span>
 						{s.summary && <span className="block truncate text-xs text-muted-foreground/70">{s.summary}</span>}
 					</span>
-					<span className={`shrink-0 font-mono text-[11px] ${s.state === "error" ? "text-red-500" : "text-muted-foreground"}`}>
-						{busy ? "…" : statusLine(s)}
+					<span className="flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground">
+						{s.state === "connected" && <span>connected</span>}
+						<span className={s.state === "error" ? "text-red-500" : undefined}>{busy ? "…" : statusLine(s)}</span>
+						<span aria-hidden="true">→</span>
 					</span>
 				</button>
-				<Toggle
-					checked={s.state !== "off"}
-					disabled={busy}
-					label={`${s.name} connection`}
-					onChange={(on) => void run({ method: "PATCH", body: JSON.stringify({ disabled: !on }) })}
-				/>
 			</div>
 			{s.state === "error" && (
 				<div className="px-1 pb-1.5 text-xs">
@@ -208,14 +208,6 @@ function ServerRow({ server: s, onOpen, onChange }: { server: ServerStatus; onOp
 			)}
 			{error && <p role="alert" className="px-1 text-xs text-red-500">{error}</p>}
 		</div>
-	);
-}
-
-function BackLink({ onClick, label }: { onClick: () => void; label: string }) {
-	return (
-		<button type="button" onClick={onClick} className={`mb-1 self-start ${LINK}`}>
-			← {label}
-		</button>
 	);
 }
 
@@ -482,12 +474,14 @@ function DetailView({
 
 	return (
 		<div className="flex flex-col gap-3" data-testid="connection-detail">
-			<BackLink onClick={onBack} label="Connections" />
 			<div className="flex items-center justify-between gap-3">
-				<span className="min-w-0">
-					<span className="block font-prose text-(length:--lh-prose-size)">{displayName(s.name)}</span>
-					{s.summary && <span className="block text-xs text-muted-foreground/70">{s.summary}</span>}
-				</span>
+				<div className="flex min-w-0 items-center gap-3">
+					<button type="button" onClick={onBack} aria-label="Back to Connections" className={`shrink-0 ${LINK}`}>←</button>
+					<div className="min-w-0">
+						<h2 className="font-prose text-(length:--lh-prose-size)">{displayName(s.name)}</h2>
+						{s.summary && <span className="block text-xs text-muted-foreground/70">{s.summary}</span>}
+					</div>
+				</div>
 				<span className="flex shrink-0 items-center gap-3">
 					<span className={`font-mono text-[11px] ${s.state === "error" ? "text-red-500" : "text-muted-foreground"}`}>
 						{busy ? "…" : s.state === "connected" ? "connected" : s.state === "off" ? "off" : "couldn’t start"}
