@@ -1,0 +1,4 @@
+# Keep Streamdown's transitive renderer aligned with the imported stylesheet.
+# package.json overrides applies to npm; pnpm reads overrides here.
+overrides:
+  katex: "0.18.2"

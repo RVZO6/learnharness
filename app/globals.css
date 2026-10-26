@@ -313,10 +313,13 @@ body {
 	height: auto !important;
 }
 
-/* Display math: long equations scroll instead of overflowing the column. */
+/* Display math: long equations scroll instead of overflowing the column.
+ * KaTeX's positioned limits can extend past its line box. Keep space inside
+ * the scroll clip for superscripts/descenders (e.g. an integral to x^2). */
 .katex-display {
 	overflow-x: auto;
 	overflow-y: hidden;
+	padding-block: 0.25em;
 }
 
 /* ============================================================
