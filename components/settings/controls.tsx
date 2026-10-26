@@ -65,7 +65,7 @@ export function SettingsRow({
 	dimmed,
 }: {
 	label: string;
-	hint?: string;
+	hint?: ReactNode;
 	children: React.ReactNode;
 	testid?: string;
 	/** Dependency graying, graph-view style: the whole row dims when the

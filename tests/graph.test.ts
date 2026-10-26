@@ -658,6 +658,7 @@ describe("graph ledger store", () => {
 import { deleteChatTraces, type ChatDeletionStats } from "../src/core/graph-deletion.ts";
 import { deleteChatSession, sessionCoverage } from "../src/server/chats.ts";
 import { mcpResultsDirectory, storeMcpResult } from "../src/server/mcp-results.ts";
+import { rememberTurnFailure, settledTurnResponse } from "../src/server/turn-runs.ts";
 import { beginTurn, endTurn } from "../src/server/turn-liveness.ts";
 import { jobStore } from "../src/store/jobs.ts";
 import {
@@ -816,11 +817,13 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 		assert.deepEqual(turnedAway, { ok: false, status: 409, code: "turn_in_flight", error: "A turn is running in this session — try again when it finishes", jobIds: [] });
 		assert.ok(fs.existsSync(resultDirectory), "blocked deletion preserves saved MCP files");
 		endTurn(dA.id);
-		// 409 — running background jobs.
+		// 409 — running background jobs; a refused delete keeps its notice.
+		rememberTurnFailure(dA.id, "The reply could not be saved.");
 		const job = jobStore.createJob({ kind: "research", chatId: dA.id, toolCallId: "del-call-1" });
 		const jobsBlocked = await deleteChatSession(dA.id, "delete-nodes");
 		assert.ok(!jobsBlocked.ok && jobsBlocked.status === 409, "refused with 409");
 		if (jobsBlocked.code === "jobs_running") assert.deepEqual(jobsBlocked.jobIds, [job.id]);
+		assert.match(await settledTurnResponse(dA.id).text(), /The reply could not be saved\./);
 		assert.equal(jobStore.deleteJobsForChat(dA.id), 1, "test cleanup — the job file is gone");
 
 		// Success — a terminal job rides along; the chat record dies last.
@@ -836,6 +839,7 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 		}
 		assert.equal(fs.existsSync(resultDirectory), false, "the chat's saved MCP files are gone");
 		assert.equal(chatStore.getChat(dA.id), null, "the chat record is gone");
+		assert.doesNotMatch(await settledTurnResponse(dA.id).text(), /"type":"error"/, "deletion clears its transient notice");
 		assert.equal(jobStore.getJob(doneJob.id), null, "the chat's job records are gone");
 		// And a second call is an honest 404.
 		assert.deepEqual(await deleteChatSession(dA.id, "delete-nodes"), { ok: false, status: 404, code: "not_found", error: "No such session" });
