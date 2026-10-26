@@ -270,9 +270,10 @@ body {
 	background: var(--color-muted-foreground);
 }
 
-/* Dock variant swap — quick fade/rise on content change; the shell's HEIGHT
-   morph is separate (WAAPI in DockOverlay). Re-applied via class toggling, no
-   remount, so collapsed-question state survives. */
+/* Dock variant swap — quick fade/rise when the dock's mode changes (chat ↔
+   question ↔ practice); the shell's HEIGHT morph and the fold/unfold content
+   fade are separate (WAAPI in DockOverlay). Only the mode wrapper carries
+   this class — a second copy inside it doubled the rise. */
 @keyframes dock-variant-in {
 	from {
 		opacity: 0;
@@ -505,10 +506,9 @@ body {
                        (native interactive elements carve out AUTOMATICALLY —
                        see the auto carve-out rule below; manual use is for
                        clickable non-natives only)
-   - .lh-lights-gutter  the sidebar LH band's traffic-light gutter: lights
-                       end at x≈68, the wordmark starts at 80px (5rem)
-   - .lh-closed-toggle  same gutter for the sidebar toggle when the sidebar
-                       is closed — the lights are static, the toggle moves
+   - .lh-lights-gutter  keeps the sidebar logo clear of lights and toggle
+   - .lh-sidebar-toggle  anchors the toggle beside the native window lights
+   - .lh-closed-toggle  reserves the same gutter in closed-sidebar headers
    ───────────────────────────────────────────────────────────────────────── */
 .lh-electron .lh-drag {
 	-webkit-app-region: drag;
@@ -539,7 +539,10 @@ body {
 	--lh-zoom: 1;
 }
 .lh-electron[data-lh-platform="darwin"] .lh-lights-gutter {
-	padding-left: calc(92px / var(--lh-zoom));
+	padding-left: calc(92px / var(--lh-zoom) + 60px);
+}
+.lh-electron[data-lh-platform="darwin"] .lh-sidebar-toggle {
+	left: calc(92px / var(--lh-zoom) + 12px);
 }
 .lh-electron[data-lh-platform="darwin"] .lh-closed-toggle {
 	margin-left: calc(92px / var(--lh-zoom));
@@ -605,17 +608,23 @@ body {
 	border-radius: 0.25rem;
 }
 
-/* Keep the dock's 16px content inset: 4px outer margin + 8px scrollbar
-   gutter + 4px inner padding. The scrollbar's center is then exactly halfway
-   between the option-card edge and the shell border, without shifting cards. */
-@supports selector(::-webkit-scrollbar) {
-	.lh-dock-scroll-area {
-		margin-right: 4px;
-		padding-right: 4px;
-		scrollbar-gutter: stable;
-		scrollbar-width: auto;
-	}
-	.lh-dock-scroll-area::-webkit-scrollbar {
-		width: 8px;
-	}
+/* Streamdown code blocks skip rendering while hidden (content-visibility:
+   auto, 200px placeholder). A folded question's blocks are hidden, so the
+   first unfold measured the placeholder and the dock overshot, then snapped
+   down by the difference (owner recording, 2026-10-25: 121px). Dock blocks
+   are small; always render them so the morph measures real heights. */
+[data-dock-scroll-area] [data-streamdown="code-block"] {
+	content-visibility: visible !important;
+}
+
+/* Radix keeps the hidden scrollbar mounted until this exit animation ends. */
+.lh-dock-scrollbar[data-state="hidden"] {
+	animation: lh-dock-scrollbar-out 150ms ease-out;
+}
+@keyframes lh-dock-scrollbar-out {
+	from { opacity: 1; }
+	to { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+	.lh-dock-scrollbar[data-state="hidden"] { animation: none; }
 }

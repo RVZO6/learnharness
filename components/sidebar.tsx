@@ -153,8 +153,8 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 		// listener flips `narrow` and the sidebar appears. The preference
 		// persists like any other open, so a restart at a narrow width
 		// still auto-restores when widened.
-		if (narrow && !open) {
-			localStorage.setItem(STORAGE_KEY, "0");
+		if (narrow) {
+			localStorage.setItem(STORAGE_KEY, "1");
 			setOpen(true);
 			window.lh?.expandWindow();
 			return;
@@ -182,48 +182,44 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 		<SidebarContext.Provider value={{ open: open && !narrow, toggle }}>
 			{/* transitions gated on mount: no slide-in flash on page load */}
 			<div className={cn("flex h-dvh", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity]")}>{children}</div>
+			{/* After page drag masks so Electron keeps this control clickable. */}
+			<FixedSidebarToggle />
 		</SidebarContext.Provider>
 	);
 }
 
-/** Hamburger for page headers — only visible when the sidebar is closed.
- *
- *  Owner, round 6c: the toggle is ALWAYS MOUNTED, owning a slot whose
- *  width+margin animate in LOCKSTEP with the sidebar's own width
- *  transition (same duration-200, same easing, both gated on mount) —
- *  before, it mounted/unmounted in one frame, so its 48px footprint
- *  (button + gap) popped and dragged the title and chips sideways while
- *  the sidebar was still mid-slide. When open the slot is exactly zero
- *  (w-0 -mr-3: width 0, the negative margin cancels the header's gap-3),
- *  so resting layouts are pixel-identical to the old conditional render.
- *  The icon fades with the slot and is clipped by it as it collapses —
- *  no popping in either direction. */
+/** Header space for the fixed toggle when the sidebar is closed. */
 export function SidebarToggle() {
-	const { open, toggle } = useSidebar();
+	const { open } = useSidebar();
 	return (
 		<span
+			aria-hidden="true"
 			className={cn(
-				"sidebar-motion lh-no-drag relative flex h-9 shrink-0 overflow-hidden duration-200",
+				"sidebar-motion relative flex h-9 shrink-0 overflow-hidden duration-200",
 				open ? "w-0 -mr-3" : "w-9 mr-0 lh-closed-toggle",
 			)}
-		>
-			<Hint label="Open sidebar" action="toggle-sidebar">
-			<Button
-				variant="ghost"
-				size="icon"
-				aria-label="Open sidebar"
-				aria-hidden={open}
-				tabIndex={open ? -1 : 0}
-				onClick={toggle}
-				className={cn("sidebar-motion duration-200", open ? "pointer-events-none opacity-0" : "opacity-100")}
-			>
-				{/* Owner, round 6: size-4, SAME as the close glyph — the toggle
-				    must not grow when the sidebar is closed (it did: size-5 here).
-				    The small look is the standard, both directions. */}
-				<PanelLeftOpenIcon className="size-4" />
-			</Button>
+		/>
+	);
+}
+
+/** One viewport-anchored control, outside the sidebar's animated layout. */
+function FixedSidebarToggle() {
+	const { open, toggle } = useSidebar();
+	const label = open ? "Close sidebar" : "Open sidebar";
+	return (
+		<div className="lh-sidebar-toggle lh-no-drag fixed left-3 top-3 z-50">
+			<Hint label={label} action="toggle-sidebar">
+				<Button
+					variant="ghost"
+					size="icon"
+					aria-label={label}
+					aria-expanded={open}
+					onClick={toggle}
+				>
+					{open ? <PanelLeftCloseIcon className="size-4" /> : <PanelLeftOpenIcon className="size-4" />}
+				</Button>
 			</Hint>
-		</span>
+		</div>
 	);
 }
 
@@ -647,20 +643,19 @@ function SessionsSidebar() {
 
 	return (
 		<aside
-			className={cn("sidebar-motion relative shrink-0 overflow-hidden duration-200 after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:border-r", open ? "w-72" : "w-0")}
+			className={cn("sidebar-motion relative shrink-0 overflow-hidden duration-200 after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:border-r after:border-border", open ? "w-72" : "w-0")}
 			aria-hidden={!open}
 		>
 			{/* Keep the divider on the animated edge, not the clipped fixed-width panel. */}
 			<div className="flex h-full w-72 flex-col bg-background">
-				{/* LH wordmark — the owner's header; close toggle sits at the edge.
+				{/* LH wordmark — reserve space for the stationary toggle.
 				    Merged chrome (2026-09-17): in Electron this band is the
 				    window's drag surface and starts after the traffic lights
 				    (.lh-lights-gutter); in the browser those classes are inert. */}
-				<div className="lh-drag lh-lights-gutter flex items-center justify-between px-4 py-3">
+				<div className="lh-drag lh-lights-gutter flex items-center pl-15 pr-4 py-3">
 					{/* The owner's mark (2026-09-17) replaces the "LH" text — still the
 					    home link, still vertically centered by the band's items-center.
-					    The 92px .lh-lights-gutter keeps it clear of the traffic lights
-					    with the lights' own edge-inset as the gap. */}
+					    The gutter clears the traffic lights and the fixed toggle. */}
 					{/* Hover mirrors the ghost toggle buttons (owner ask, 2026-09-17):
 					    same size-9 chip geometry, same hover:bg-accent treatment. */}
 					<Hint
@@ -679,17 +674,6 @@ function SessionsSidebar() {
 						>
 							<LhMark className="size-6" />
 						</Link>
-					</Hint>
-					<Hint label="Close sidebar" action="toggle-sidebar">
-						<Button
-							variant="ghost"
-							size="icon"
-							aria-label="Close sidebar"
-							onClick={toggle}
-							className="lh-no-drag"
-						>
-							<PanelLeftCloseIcon className="size-4" />
-						</Button>
 					</Hint>
 				</div>
 

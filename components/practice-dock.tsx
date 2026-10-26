@@ -1,5 +1,7 @@
 "use client";
 
+import { DockScrollArea } from "./dock-scroll-area.tsx";
+
 import { useCallback, useRef, useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
@@ -105,12 +107,12 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 			    cards' label row — owner round, 2026-10-05) + the statement,
 			    markdown + LaTeX rendered, capped by the measured column
 			    (--dock-max-h; the old fixed 40vh cut long problems short). */}
-			<div data-dock-scroll-area="" className="lh-dock-scroll-area max-h-[var(--dock-max-h,40vh)] overflow-y-auto overscroll-y-contain px-4 pt-3 pb-2">
+			<DockScrollArea className="max-h-[var(--dock-max-h,40vh)] overflow-y-auto overscroll-y-contain px-4 pt-3 pb-2">
 				<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Problem</div>
 				<div className="lh-prose text-[15px]">
 					<ToolContentResponse>{input.statement}</ToolContentResponse>
 				</div>
-			</div>
+			</DockScrollArea>
 
 			{/* The learner's half: Enter SENDS (owner round 2, 2026-10-05);
 			    Shift+Enter makes a newline — less to decide about. */}

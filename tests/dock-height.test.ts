@@ -49,18 +49,31 @@ it("contains reading-area edge gestures instead of forwarding them to the transc
 	assert.ok(boundary < source.indexOf('if (n instanceof HTMLElement && canScroll(n, e.deltaY))'));
 	for (const file of ["question-dock.tsx", "practice-dock.tsx"]) {
 		const dock = readFileSync(new URL("../components/" + file, import.meta.url), "utf8");
-		assert.match(dock, /data-dock-scroll-area=""[^\n]+overscroll-y-contain/);
+		assert.match(dock, /<DockScrollArea className="[^\n]+overscroll-y-contain/);
 	}
 });
 
 
-it("centers the dock scrollbar in the existing card gutter without shifting option edges", () => {
+it("overlays the scrollbar in the existing margin without changing content spacing", () => {
 	const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
-	assert.match(css, /\.lh-dock-scroll-area\s*\{[^}]*margin-right: 4px;[^}]*padding-right: 4px;[^}]*scrollbar-gutter: stable;[^}]*scrollbar-width: auto;/);
-	assert.match(css, /\.lh-dock-scroll-area::-webkit-scrollbar\s*\{[^}]*width: 8px;/);
+	assert.ok(!css.includes(".lh-dock-scroll-area"), "remove the native gutter and padding overrides");
+	const source = readFileSync(new URL("../components/dock-scroll-area.tsx", import.meta.url), "utf8");
+	assert.match(source, /ScrollArea\.Scrollbar/);
+	assert.match(source, /style=\{\{ right: 5, width: 6, top: 12, bottom: 12 \}\}/);
+	assert.match(source, /type="scroll"/, "hide when scrolling ends, not only when the pointer leaves");
+	assert.doesNotMatch(source.slice(source.indexOf("return (")), /(?:padding|margin|scrollbar-gutter)/);
 	for (const file of ["question-dock.tsx", "practice-dock.tsx"]) {
-		assert.match(readFileSync(new URL("../components/" + file, import.meta.url), "utf8"), /data-dock-scroll-area=""[^\n]+lh-dock-scroll-area/);
+		const dock = readFileSync(new URL("../components/" + file, import.meta.url), "utf8");
+		assert.match(dock, /<DockScrollArea className="[^"\n]+px-4/);
 	}
-	assert.equal(4 + 8 + 4, 16, "card inset is unchanged");
-	assert.equal(4 + 8 / 2, 16 / 2, "thumb is centered in the gap");
+	assert.equal(5 + 6 / 2, 16 / 2, "thumb is centered in the existing margin");
+});
+
+
+it("fades the overlay out before Radix removes it", () => {
+	const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+	assert.match(css, /\.lh-dock-scrollbar\[data-state="hidden"\]\s*\{\s*animation: lh-dock-scrollbar-out 150ms ease-out;/);
+	assert.match(css, /@keyframes lh-dock-scrollbar-out\s*\{\s*from \{ opacity: 1; \}\s*to \{ opacity: 0; \}/);
+	const source = readFileSync(new URL("../components/dock-scroll-area.tsx", import.meta.url), "utf8");
+	assert.match(source, /className="lh-dock-scrollbar/);
 });

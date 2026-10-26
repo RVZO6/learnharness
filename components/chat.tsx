@@ -1903,7 +1903,8 @@ function DockOverlay({
 	 *  home and /chat/new carry, above the composer while slots are unset. */
 	setupCta?: React.ReactNode;
 }) {
-	const { isAtBottom, scrollToBottom, scrollRef } = useStickToBottomContext();
+	const stickContext = useStickToBottomContext();
+	const { isAtBottom, scrollToBottom, scrollRef } = stickContext;
 	// Render-fresh bottom state (flicker round): the arrival block below reads
 	// it DURING RENDER — the same value the after-paint effect used to read a
 	// frame too late. Assigned per render like the other refs below.
@@ -2094,6 +2095,7 @@ function DockOverlay({
 				// including its edges. Never forward its exhausted scroll to
 				// the transcript and unexpectedly fold or move the dock.
 				if (n.hasAttribute("data-dock-scroll-area")) return;
+				if (n.hasAttribute("data-dock-scroll-boundary")) return;
 				if (n instanceof HTMLElement && canScroll(n, e.deltaY)) return; // native
 			}
 			e.preventDefault();
@@ -2108,6 +2110,9 @@ function DockOverlay({
 	// While expanded, let real geometry corrections shrink it: retaining an
 	// obsolete oversized height leaves a blank tail below the transcript.
 	const reserveRef = useRef(0);
+	// The latest reserve growth not yet seen by the height morph — the
+	// morph decides whether the transcript follows it (see catch-up below).
+	const reserveGrowthRef = useRef(0);
 	const blockRef = useRef<HTMLDivElement>(null);
 	const naturalBlockHeight = () => {
 		const block = blockRef.current;
@@ -2134,6 +2139,7 @@ function DockOverlay({
 		// DockOverlay render — ~1s apart live). Shrinks never stamp (the
 		// fold's own give-back must not self-mute the re-expand).
 		if (shouldStampGeometryMute(next, reserveRef.current, pendingRef.current)) geometryAtRef.current = Date.now();
+		if (next > reserveRef.current) reserveGrowthRef.current = next - reserveRef.current;
 		reserveRef.current = next;
 		onReserve(next);
 	};
@@ -2160,7 +2166,13 @@ function DockOverlay({
 			expandIntentRef.current = false;
 		});
 	};
+	// An explicit expand (bar click, reveal, Enter) ends at the bottom wherever
+	// the learner stood — the transcript catch-up below rides the morph for
+	// it even off the bottom (owner recording, 2026-10-25: a practice bar
+	// clicked a little above the bottom slid on behind the fade for ~1s).
+	const followRequestRef = useRef(false);
 	const expandAndReveal = () => {
+		followRequestRef.current = true;
 		setRevealed(true); // the teach-check invitation was accepted (W5)
 		setExpanded(true);
 		void suppressFoldDuringReveal();
@@ -2218,7 +2230,7 @@ function DockOverlay({
 				// folded on stick-to-bottom's catch-up transients; a real fold
 				// needs the distance AND stick-to-bottom agreeing the learner
 				// left the bottom.
-				if (d > COLLAPSE_DIST && !expandIntentRef.current && !atBottomRef.current) setExpanded(false);
+				if (d > COLLAPSE_DIST && !expandIntentRef.current && !followingRef.current && !atBottomRef.current) setExpanded(false);
 			} else if (d < EXPAND_DIST) {
 				// Teach checks stay collapsed until the learner opens them (W5): the
 				// at-bottom auto-expand would pop the form over the teaching.
@@ -2261,7 +2273,7 @@ function DockOverlay({
 		prevExpandedForFadeRef.current = expanded;
 		contentRef.current?.animate(
 			[{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "translateY(0)" }],
-			{ duration: 160, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
+			{ duration: 160, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: "backwards" },
 		);
 	}, [expanded]);
 	// The height-morph key (components/dock-state-key.ts): the expanded
@@ -2283,20 +2295,105 @@ function DockOverlay({
 				p.height = h;
 				measureBlock(); // typing growth → the spacer grows with the box
 			}
+			reserveGrowthRef.current = 0;
+			followRequestRef.current = false;
 			return;
 		}
 		el.getAnimations().forEach((a) => a.cancel()); // flush to natural height before measuring
+		el.style.height = ""; // drop the previous morph's pinned start height too
 		const h = el.getBoundingClientRect().height;
 		// Variant change → re-reserve. Growth applies instantly; a drop (the
 		// fold, or question → composer) is filtered by the offer policy.
 		measureBlock();
+		const growth = reserveGrowthRef.current;
+		reserveGrowthRef.current = 0;
+		const follow = followRequestRef.current;
+		followRequestRef.current = false;
 		if (p && Math.abs(p.height - h) > 1) {
-			el.animate([{ height: `${p.height}px` }, { height: `${h}px` }], {
+			// THE FLASH FRAME (owner, 2026-10-25 — the top-of-screen flicker,
+			// then the residual rubber band in the owner's recording): a new
+			// morph whose time is not yet resolved applies NOTHING for a
+			// frame, fill or no fill, so ~1 in 3 folds/unfolds painted the
+			// END layout (the full form, or the bar) before the morph ran
+			// from its start: up → down → up. The start height is pinned
+			// inline here, so the next style pass has it whatever the
+			// animation's state; fill both holds the end height until the
+			// finish handler drops the pin and the animation together.
+			el.style.height = `${p.height}px`;
+			const morph = el.animate([{ height: `${p.height}px` }, { height: `${h}px` }], {
 				duration: 120,
 				easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+				fill: "both",
 			});
+			morph.onfinish = () => {
+				el.style.height = "";
+				morph.cancel();
+			};
+			const scroller = scrollRef.current;
+			if (scroller && (follow || (growth > 1 && atBottomRef.current))) {
+				catchUpRef.current = { morph, scrollHeight: scroller.scrollHeight + growth };
+			}
 		}
 		prevRef.current = { key: stateKey, height: h };
+	});
+
+	// TRANSCRIPT CATCH-UP (owner, 2026-10-25 — the rubber band): a morph that
+	// grows the reserve at the bottom (the scroll-down unfold of a question
+	// that arrived folded, an at-bottom arrival) grows the spacer in the same
+	// paint. stick-to-bottom's spring then chased the new bottom for ~1s
+	// after the 120ms morph had settled (measured: 598px, dock done at
+	// 126ms, transcript at ~950ms) — the learner hit the bottom, stopped,
+	// and the page drifted on by itself. Instead the transcript MOVES WITH
+	// the dock (owner: "the top of the dock is always below any text"): the
+	// remaining distance to the bottom is covered on the morph's OWN eased
+	// progress — the start height is pinned, so that progress is exactly
+	// the dock's. Dock and transcript start and land together, and the gap
+	// between them moves linearly from its start to its resting size, never
+	// below the smaller of the two: no text slides under the fade. Explicit
+	// expands follow too, off the bottom (followRequestRef). The spring's
+	// target is pinned to the current position meanwhile so it never
+	// fights. An upward scroll during the follow (the learner leaving) ends
+	// it; trackpad momentum downward only runs ahead of it.
+	const catchUpRef = useRef<{ morph: Animation; scrollHeight: number } | null>(null);
+	const followingRef = useRef(false);
+	useEffect(() => {
+		stickContext.targetScrollTop = (target, { scrollElement }) =>
+			followingRef.current ? scrollElement.scrollTop : target;
+		return () => {
+			stickContext.targetScrollTop = null;
+		};
+	}, [stickContext]);
+	useIsoLayoutEffect(() => {
+		const pendingCatchUp = catchUpRef.current;
+		const el = scrollRef.current;
+		if (!pendingCatchUp || !el) return;
+		const { morph } = pendingCatchUp;
+		if (morph.playState !== "running") {
+			catchUpRef.current = null; // the morph ended before the spacer landed
+			return;
+		}
+		// The spacer's growth commits on the NEXT render (ChatView's reserve state).
+		if (el.scrollHeight < pendingCatchUp.scrollHeight - 1) return;
+		catchUpRef.current = null;
+		const from = el.scrollTop;
+		let last = from;
+		followingRef.current = true;
+		const step = () => {
+			if (el.scrollTop < last - 1) {
+				followingRef.current = false; // the learner scrolled away
+				return;
+			}
+			const bottom = el.scrollHeight - el.clientHeight;
+			const done = morph.playState !== "running";
+			// Read in rAF: this frame's progress, the one the dock paints with.
+			// A not-yet-started morph reads null — the pinned start, so 0.
+			const progress = done ? 1 : (morph.effect?.getComputedTiming().progress ?? 0);
+			el.scrollTop = Math.max(el.scrollTop, from + (bottom - from) * progress);
+			last = el.scrollTop;
+			if (!done) requestAnimationFrame(step);
+			else followingRef.current = false;
+		};
+		requestAnimationFrame(step);
 	});
 
 	return (
@@ -2359,6 +2456,7 @@ function DockOverlay({
 									input={practice.input as { statement: string }}
 									expanded={expanded}
 									onExpand={() => {
+										followRequestRef.current = true;
 										setExpanded(true);
 										void suppressFoldDuringReveal();
 									}}
