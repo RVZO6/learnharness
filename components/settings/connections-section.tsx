@@ -20,6 +20,8 @@ import { SettingsGroup, SettingsSection, Toggle } from "./controls";
  * Each tool reads as a plain "ability" with a reads / changes-things tag.
  * Existing local environment variables have explicit edit/remove actions.
  *
+ * App-written labels use sentence case. Preserve service names, supplied
+ * tool titles, acronyms, and variable keys.
  * Three views: the list, manual setup, and one connection.
  */
 
@@ -47,7 +49,6 @@ interface ServerStatus {
 type View = { kind: "list" } | { kind: "add" } | { kind: "detail"; name: string };
 
 const LINK = "text-xs text-muted-foreground/70 underline-offset-2 hover:text-foreground hover:underline disabled:opacity-40";
-const LINK_SMALL = "text-[10px] text-muted-foreground/60 underline-offset-2 hover:text-foreground hover:underline";
 const CONNECTION_VIEW = "flex flex-col gap-2";
 const INPUT =
 	"h-7 w-full min-w-0 rounded-sm border border-border bg-background px-1.5 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-muted-foreground/50";
@@ -64,8 +65,8 @@ function displayName(name: string): string {
 }
 
 function statusLine(s: ServerStatus): string {
-	if (s.state === "off") return "off";
-	if (s.state === "error") return "couldn’t start";
+	if (s.state === "off") return "Off";
+	if (s.state === "error") return "Couldn’t start";
 	const on = s.tools.filter((t) => t.enabled).length;
 	return on === s.tools.length ? `${on} abilit${on === 1 ? "y" : "ies"}` : `${on} of ${s.tools.length} abilities`;
 }
@@ -182,7 +183,7 @@ function ServerRow({ server: s, onOpen, onChange }: { server: ServerStatus; onOp
 						{s.summary && <span className="block truncate text-xs text-muted-foreground/70">{s.summary}</span>}
 					</span>
 					<span className="flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground">
-						{s.state === "connected" && <span>connected</span>}
+						{s.state === "connected" && <span>Connected</span>}
 						<span className={s.state === "error" ? "text-red-500" : undefined}>{busy ? "…" : statusLine(s)}</span>
 						<span aria-hidden="true">→</span>
 					</span>
@@ -442,6 +443,7 @@ function DetailView({
 	const [editing, setEditing] = useState<string | null>(null);
 	const [draft, setDraft] = useState("");
 	const [confirmRemove, setConfirmRemove] = useState(false);
+	const [abilitiesExpanded, setAbilitiesExpanded] = useState(false);
 	const url = `/api/mcp/${encodeURIComponent(s.name)}`;
 
 	async function run(init: RequestInit) {
@@ -484,9 +486,60 @@ function DetailView({
 				</div>
 				<span className="flex shrink-0 items-center gap-3">
 					<span className={`font-mono text-[11px] ${s.state === "error" ? "text-red-500" : "text-muted-foreground"}`}>
-						{busy ? "…" : s.state === "connected" ? "connected" : s.state === "off" ? "off" : "couldn’t start"}
+						{busy ? "…" : s.state === "connected" ? "Connected" : s.state === "off" ? "Off" : "Couldn’t start"}
 					</span>
 					<Toggle checked={s.state !== "off"} disabled={busy} label={`${s.name} connection`} onChange={(on) => void patch({ disabled: !on })} />
+				</span>
+			</div>
+
+			<div className="flex flex-wrap items-center gap-4" data-testid="connection-actions">
+				{editing === "__name" ? (
+					<span className="flex items-center gap-2">
+						<input
+							value={draft}
+							onChange={(e) => setDraft(e.target.value.replace(/[^a-zA-Z0-9_-]/g, "-"))}
+							onKeyDown={(e) => {
+								if (e.key === "Enter" && draft) void patch({ rename: draft }).then(() => setEditing(null));
+								if (e.key === "Escape") setEditing(null);
+							}}
+							autoFocus
+							aria-label="New name"
+							className={`${INPUT} max-w-48`}
+						/>
+						<button type="button" disabled={busy || !draft} onClick={() => void patch({ rename: draft }).then(() => setEditing(null))} className="text-xs text-foreground underline-offset-2 hover:underline">
+							Save
+						</button>
+					</span>
+				) : (
+					<button
+						type="button"
+						onClick={() => {
+							setEditing("__name");
+							setDraft(s.name);
+						}}
+						className={LINK}
+					>
+						Rename
+					</button>
+				)}
+				<span className="ml-auto">
+					{confirmRemove ? (
+						<span className="flex items-center gap-3 text-xs">
+							<span className="text-muted-foreground">Remove {displayName(s.name)}?</span>
+							<button type="button" disabled={busy} onClick={() => void remove()} className="text-red-500 underline-offset-2 hover:underline">
+								Remove
+							</button>
+							<button type="button" onClick={() => setConfirmRemove(false)} className={LINK}>
+								Keep
+							</button>
+						</span>
+					) : (
+						<Hint label="Removes it from LearnHarness only" side="top">
+							<button type="button" onClick={() => setConfirmRemove(true)} className={`${LINK} hover:text-red-500`}>
+								Remove connection
+							</button>
+						</Hint>
+					)}
 				</span>
 			</div>
 
@@ -506,29 +559,10 @@ function DetailView({
 				</div>
 			)}
 
-			{s.tools.length > 0 && (
-				<SettingsGroup label="What the teacher can do">
-					{s.tools.map((t) => (
-						<div key={t.name} className="flex items-center justify-between gap-3 py-0.5" data-testid={`ability-${t.name}`}>
-							<span className="min-w-0">
-								<span className="block font-prose text-(length:--lh-prose-size)">{t.title || humanizeToolName(t.name)}</span>
-								{t.description && <span className="block text-xs text-muted-foreground/70">{t.description}</span>}
-							</span>
-							<span className="flex shrink-0 items-center gap-2">
-								{t.kind === "reads" && <span className="font-mono text-[10px] text-muted-foreground/60">reads</span>}
-								{t.kind === "changes" && <span className="font-mono text-[10px] text-amber-400/80">changes things</span>}
-								<Toggle checked={t.enabled} disabled={busy || s.state === "off"} label={`${s.name} ${t.name}`} onChange={(on) => void patch({ tools: { [t.name]: on } })} />
-							</span>
-						</div>
-					))}
-					{anyChanges && <p className="text-xs text-muted-foreground/70">Abilities that change things start off.</p>}
-				</SettingsGroup>
-			)}
-
 			{s.transport === "program" && <VariablesEditor key={s.name} server={s} busy={busy} onSave={patch} />}
 
 			{s.transport === "online" && s.fields.length > 0 && (
-				<SettingsGroup label="Setup">
+				<SettingsGroup label="Setup" headingClassName="normal-case tracking-normal">
 					{s.fields.map((f) =>
 						editing === f.key ? (
 							<div key={f.key} className="flex items-center gap-2">
@@ -572,59 +606,34 @@ function DetailView({
 				</SettingsGroup>
 			)}
 
+			{s.tools.length > 0 && (
+				<div className="mt-5 border-t border-border/60 pt-4" data-testid="connection-abilities">
+					<button type="button" aria-expanded={abilitiesExpanded} aria-controls="connection-abilities-list" onClick={() => setAbilitiesExpanded((expanded) => !expanded)} className="flex w-full items-center justify-between gap-3 text-left text-xs text-muted-foreground hover:text-foreground">
+						<span className="flex items-center gap-2"><span aria-hidden="true">{abilitiesExpanded ? "▾" : "▸"}</span>What the teacher can do</span>
+						<span>{s.tools.filter((t) => t.enabled).length} of {s.tools.length} enabled</span>
+					</button>
+					<div id="connection-abilities-list" hidden={!abilitiesExpanded} className="mt-2 flex flex-col gap-2">
+						{s.tools.map((t) => (
+							<div key={t.name} className="flex items-center justify-between gap-3 py-0.5" data-testid={`ability-${t.name}`}>
+								<span className="min-w-0">
+									<span className="block font-prose text-(length:--lh-prose-size)">{t.title || humanizeToolName(t.name)}</span>
+									{t.description && <span className="block text-xs text-muted-foreground/70">{t.description}</span>}
+								</span>
+								<span className="flex shrink-0 items-center gap-2">
+									{t.kind === "reads" && <span className="font-mono text-[10px] text-muted-foreground/60">Reads</span>}
+									{t.kind === "changes" && <span className="font-mono text-[10px] text-amber-400/80">Changes things</span>}
+									<Toggle checked={t.enabled} disabled={busy || s.state === "off"} label={`${s.name} ${t.name}`} onChange={(on) => void patch({ tools: { [t.name]: on } })} />
+								</span>
+							</div>
+						))}
+						{anyChanges && <p className="text-xs text-muted-foreground/70">Abilities that change things start off.</p>}
+				</div>
+				</div>
+			)}
+
 
 			{error && <p role="alert" className="text-xs text-red-500">{error}</p>}
 
-			<div className="flex items-center gap-4 border-t border-border/60 pt-3">
-				{editing === "__name" ? (
-					<span className="flex items-center gap-2">
-						<input
-							value={draft}
-							onChange={(e) => setDraft(e.target.value.replace(/[^a-zA-Z0-9_-]/g, "-"))}
-							onKeyDown={(e) => {
-								if (e.key === "Enter" && draft) void patch({ rename: draft }).then(() => setEditing(null));
-								if (e.key === "Escape") setEditing(null);
-							}}
-							autoFocus
-							aria-label="New name"
-							className={`${INPUT} max-w-48`}
-						/>
-						<button type="button" disabled={busy || !draft} onClick={() => void patch({ rename: draft }).then(() => setEditing(null))} className="text-xs text-foreground underline-offset-2 hover:underline">
-							Save
-						</button>
-					</span>
-				) : (
-					<button
-						type="button"
-						onClick={() => {
-							setEditing("__name");
-							setDraft(s.name);
-						}}
-						className={LINK}
-					>
-						Rename
-					</button>
-				)}
-				<span className="ml-auto">
-					{confirmRemove ? (
-						<span className="flex items-center gap-3 text-xs">
-							<span className="text-muted-foreground">Remove {displayName(s.name)}?</span>
-							<button type="button" disabled={busy} onClick={() => void remove()} className="text-red-500 underline-offset-2 hover:underline">
-								Remove
-							</button>
-							<button type="button" onClick={() => setConfirmRemove(false)} className={LINK}>
-								Keep
-							</button>
-						</span>
-					) : (
-						<Hint label="Removes it from LearnHarness only" side="top">
-							<button type="button" onClick={() => setConfirmRemove(true)} className={`${LINK_SMALL} hover:text-red-500`}>
-								remove connection
-							</button>
-						</Hint>
-					)}
-				</span>
-			</div>
 		</div>
 	);
 }
@@ -683,7 +692,7 @@ function VariablesEditor({ server, busy, onSave }: {
 		</div>
 	);
 	return (
-		<SettingsGroup label="Variables" testid="connection-variables">
+		<SettingsGroup label="Variables" headingClassName="normal-case tracking-normal" testid="connection-variables">
 			{fields.map((field) => editing === field.key ? <div key={field.key}>{form}</div> : (
 				<div key={field.key} className="flex items-center gap-3">
 					<span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">{field.key}</span>

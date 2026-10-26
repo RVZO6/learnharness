@@ -174,10 +174,10 @@ async function enter(label: string, value: string) {
 
 test("generic connection errors appear once in list and detail; technical details are removed", async () => {
 	await mount([serverFixture()], false);
-	assert.equal((document.body.textContent?.match(/couldn’t start/g) ?? []).length, 1);
+	assert.equal((document.body.textContent?.match(/Couldn’t start/g) ?? []).length, 1);
 	assert(!document.body.textContent?.includes("It could not start."));
 	await click(button("Details"));
-	assert.equal((document.body.textContent?.match(/couldn’t start/g) ?? []).length, 1);
+	assert.equal((document.body.textContent?.match(/Couldn’t start/g) ?? []).length, 1);
 	assert(!document.body.textContent?.includes("It could not start."));
 	assert(!document.querySelector("details"));
 	assert(!document.body.textContent?.includes("Technical details"));
@@ -282,7 +282,7 @@ test("connection details replace the section heading and put Back beside the con
 	assert(document.body.textContent?.includes(hint));
 	const row = byTest("connection-canvas");
 	assert(!row.querySelector('[role="switch"]'), "the list must not duplicate the connection switch");
-	assert(row.textContent?.includes("connected"));
+	assert(row.textContent?.includes("Connected"));
 	assert(row.textContent?.includes("1 ability"));
 	await click(row.querySelector("button")!);
 	const detail = byTest("connection-detail");
@@ -307,5 +307,87 @@ test("connection details replace the section heading and put Back beside the con
 	await click(back);
 	assert.equal(byTest("section-connections").querySelector("h2")?.textContent, "Connections");
 	assert(document.body.textContent?.includes(hint));
-	assert(byTest("connection-canvas").textContent?.includes("off"));
+	assert(byTest("connection-canvas").textContent?.includes("Off"));
+});
+
+test("management and variables precede collapsed abilities with a live enabled count", async () => {
+	const server = {
+		...serverFixture(), state: "connected",
+		tools: [
+			{ name: "list_courses", title: "List Courses", description: "Read courses.", kind: "reads", enabled: true },
+			{ name: "edit_course", title: "Edit Course", description: "Edit courses.", kind: "changes", enabled: false },
+		],
+	};
+	await mount([server], false);
+	await click(byTest("connection-canvas").querySelector("button")!);
+	const detail = byTest("connection-detail");
+	const children = [...detail.children];
+	const actions = byTest("connection-actions");
+	const variables = byTest("connection-variables");
+	const abilities = byTest("connection-abilities");
+	assert.equal(children.indexOf(actions), 1, "management sits directly below the title");
+	assert(children.indexOf(actions) < children.indexOf(variables));
+	assert(children.indexOf(variables) < children.indexOf(abilities));
+	assert(button("Rename"));
+	assert(button("Remove connection"));
+	assert(variables.querySelector("p")?.classList.contains("normal-case"));
+	assert(variables.textContent?.includes("API_TOKEN"), "variable keys retain exact capitalization");
+	const disclosure = abilities.querySelector("button")!;
+	const list = document.getElementById(disclosure.getAttribute("aria-controls")!)!;
+	assert.equal(disclosure.getAttribute("aria-expanded"), "false");
+	assert(list.hasAttribute("hidden"));
+	assert(disclosure.textContent?.includes("1 of 2 enabled"));
+	await click(disclosure);
+	assert.equal(disclosure.getAttribute("aria-expanded"), "true");
+	assert(!list.hasAttribute("hidden"));
+	assert(byTest("ability-list_courses").textContent?.includes("List Courses"), "service-provided titles remain unchanged");
+	assert(byTest("ability-list_courses").textContent?.includes("Reads"));
+	assert(byTest("ability-edit_course").textContent?.includes("Changes things"));
+	globalThis.fetch = async (_url, init) => {
+		assert.deepEqual(JSON.parse(String(init?.body)), { tools: { edit_course: true } });
+		return Response.json({ server: { ...server, tools: server.tools.map((tool) => ({ ...tool, enabled: true })) } });
+	};
+	await click(labelled("canvas edit_course"));
+	assert(disclosure.textContent?.includes("2 of 2 enabled"));
+	await click(disclosure);
+	assert(list.hasAttribute("hidden"));
+	await click(button("Rename"));
+	assert(labelled("New name"));
+	await enter("New name", "renamed");
+	globalThis.fetch = async (_url, init) => {
+		assert.deepEqual(JSON.parse(String(init?.body)), { rename: "renamed" });
+		return Response.json({ server: { ...server, name: "renamed" } });
+	};
+	await click(button("Save"));
+	assert.equal(detail.querySelector("h2")?.textContent, "Renamed");
+	await click(button("Remove connection"));
+	await click(button("Keep"));
+	assert(button("Remove connection"));
+	await click(button("Remove connection"));
+	globalThis.fetch = async (_url, init) => {
+		assert.equal(init?.method, "DELETE");
+		return Response.json({});
+	};
+	await click(button("Remove"));
+	assert(byTest("connections-list"));
+	assert(!byTest("connection-detail"));
+});
+
+test("online setup also stays above abilities and empty tool lists have no disclosure", async () => {
+	const server = { ...serverFixture(), state: "connected", transport: "online", config: { url: "https://example.com/mcp" }, fields: [{ where: "header", key: "Authorization", label: "API token", secret: true, value: "••••1234" }], tools: [{ name: "read", title: "Read", kind: "reads", enabled: true }] };
+	await mount([server], false);
+	await click(byTest("connection-canvas").querySelector("button")!);
+	const children = [...byTest("connection-detail").children];
+	const setup = children.find((el) => el.querySelector("p")?.textContent === "Setup")!;
+	assert(setup);
+	assert(children.indexOf(setup) < children.indexOf(byTest("connection-abilities")));
+	assert(setup.querySelector("p")?.classList.contains("normal-case"));
+	await click(labelled("Back to Connections"));
+	await act(async () => root!.unmount());
+	host?.remove(); root = undefined; host = undefined;
+	await mount([{ ...server, tools: [] }], false);
+	await click(byTest("connection-canvas").querySelector("button")!);
+	assert(!byTest("connection-abilities"));
+	assert(button("Rename"));
+	assert(button("Remove connection"));
 });
