@@ -609,7 +609,7 @@ function DetailView({
 			{s.tools.length > 0 && (
 				<div className="mt-5 border-t border-border/60 pt-4" data-testid="connection-abilities">
 					<button type="button" aria-expanded={abilitiesExpanded} aria-controls="connection-abilities-list" onClick={() => setAbilitiesExpanded((expanded) => !expanded)} className="flex w-full items-center justify-between gap-3 text-left text-xs text-muted-foreground hover:text-foreground">
-						<span className="flex items-center gap-2"><span aria-hidden="true">{abilitiesExpanded ? "▾" : "▸"}</span>What the teacher can do</span>
+						<span className="flex items-center gap-2"><span aria-hidden="true">{abilitiesExpanded ? "▾" : "▸"}</span>Tools</span>
 						<span>{s.tools.filter((t) => t.enabled).length} of {s.tools.length} enabled</span>
 					</button>
 					<div id="connection-abilities-list" hidden={!abilitiesExpanded} className="mt-2 flex flex-col gap-2">

@@ -333,6 +333,7 @@ test("management and variables precede collapsed abilities with a live enabled c
 	assert(variables.querySelector("p")?.classList.contains("normal-case"));
 	assert(variables.textContent?.includes("API_TOKEN"), "variable keys retain exact capitalization");
 	const disclosure = abilities.querySelector("button")!;
+	assert(disclosure.textContent?.includes("Tools"));
 	const list = document.getElementById(disclosure.getAttribute("aria-controls")!)!;
 	assert.equal(disclosure.getAttribute("aria-expanded"), "false");
 	assert(list.hasAttribute("hidden"));
