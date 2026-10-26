@@ -76,7 +76,8 @@
 		"zod": "^4.4.3"
 	},
 	"overrides": {
-		"katex": "$katex"
+		"katex": "$katex",
+		"mdast-util-from-markdown": "$mdast-util-from-markdown"
 	},
 	"devDependencies": {
 		"@next/eslint-plugin-next": "^16.3.3",
