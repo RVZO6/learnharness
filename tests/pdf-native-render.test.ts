@@ -9,6 +9,7 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { createRequire } from "node:module";
 import { describe, it } from "node:test";
 import { realHeadless } from "../src/agent/subagents/headless.ts";
 import { standardFontsDir } from "../src/agent/subagents/pdf-ops.ts";
@@ -32,6 +33,12 @@ function pngFacts(buf: Buffer): { w: number; h: number; idats: number } {
 }
 
 describe("native pdf_render (pdfjs paints, @napi-rs/canvas hosts)", () => {
+	it("uses the same canvas instance as pdfjs", () => {
+		const appRequire = createRequire(import.meta.url);
+		const pdfRequire = createRequire(appRequire.resolve("pdfjs-dist/legacy/build/pdf.mjs"));
+		assert.equal(appRequire("@napi-rs/canvas").Path2D, pdfRequire("@napi-rs/canvas").Path2D);
+	});
+
 	it("the shared font directory ends in pdfjs's required slash on every OS", () => {
 		const fonts = standardFontsDir();
 		assert.ok(fonts.endsWith("/"), "pdfjs rejects a trailing Windows backslash");

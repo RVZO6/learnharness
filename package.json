@@ -28,6 +28,7 @@
 		"@earendil-works/pi-ai": "1.4.0",
 		"@earendil-works/pi-mcp": "1.4.0",
 		"@mozilla/readability": "^0.6.0",
+		"@napi-rs/canvas": "1.0.13",
 		"@radix-ui/react-use-controllable-state": "^1.2.6",
 		"@resvg/resvg-js": "^2.6.2",
 		"@rive-app/react-webgl2": "^4.32.1",
@@ -76,6 +77,7 @@
 		"zod": "^4.4.3"
 	},
 	"overrides": {
+		"@napi-rs/canvas": "$@napi-rs/canvas",
 		"katex": "$katex",
 		"mdast-util-from-markdown": "$mdast-util-from-markdown"
 	},

@@ -1,5 +1,6 @@
 # Keep Streamdown's transitive renderer aligned with the imported stylesheet.
 # package.json overrides applies to npm; pnpm reads overrides here.
 overrides:
+  '@napi-rs/canvas': "1.0.13"
   katex: "0.18.2"
   mdast-util-from-markdown: "2.0.3"
