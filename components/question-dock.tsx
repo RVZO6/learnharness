@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownIcon, ChevronRightIcon, PlayIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DockScrollArea } from "./dock-scroll-area.tsx";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { ToolContentResponse } from "@/components/ai-elements/message";
@@ -568,7 +567,7 @@ function QuestionDockForm({
 			{/* Question area — scrolls internally if very tall; the bottom row stays put.
 			    Capped by the measured column (--dock-max-h; the old fixed 55dvh cut
 			    long questions short — owner round, 2026-10-05). */}
-			<DockScrollArea className="max-h-[var(--dock-max-h,55dvh)] overflow-y-auto overscroll-y-contain px-4 pt-3">
+			<div data-dock-scroll-area="" data-session-find-root="" className="max-h-[var(--dock-max-h,55dvh)] overflow-y-auto px-4 pt-3">
 				<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					{toolName === "probe"
 						? "Probe"
@@ -754,7 +753,7 @@ function QuestionDockForm({
 						)}
 					</div>
 				)}
-			</DockScrollArea>
+			</div>
 
 			{/* Confidence (owner, 2026-10-01; UI rounds same day): a snapped
 				slider below the options and above "Your thinking" — the
