@@ -75,7 +75,7 @@ export function usableCustomModels(models: readonly CustomModelDraft[]): CustomM
 }
 
 /** Use server-published metadata, including Codex-compatible catalogs. No local capability defaults. */
-export function discoverCustomModels(body: unknown): CustomModelDraft[] {
+export function discoverCustomModels(body: unknown, limit = 500): CustomModelDraft[] {
 	const catalog = body as { data?: unknown; models?: unknown } | null;
 	const data = Array.isArray(catalog?.data) ? catalog.data : catalog?.models;
 	if (!Array.isArray(data)) throw new Error("The endpoint did not return a model list. Add models manually.");
@@ -98,5 +98,5 @@ export function discoverCustomModels(body: unknown): CustomModelDraft[] {
 			imageInput: typeof raw.imageInput === "boolean" ? raw.imageInput : Array.isArray(modalities) && modalities.includes("text") ? modalities.includes("image") : undefined,
 			supportedLevels: normalizedLevels?.length ? [...new Set(normalizedLevels)] : raw.reasoning === false || (Array.isArray(levels) && levels.length === 0) ? ["off"] : undefined,
 		}];
-	}).slice(0, 500);
+	}).slice(0, limit);
 }

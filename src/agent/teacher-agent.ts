@@ -17,6 +17,8 @@ import {
 import { practiceTools, type PracticeToolContext } from "./tools/practice.ts";
 import { healToolRecord, withArgumentHeal } from "./tools/heal.ts";
 import { sendToUserTool } from "./tools/send-to-user.ts";
+import { createReadTool, readTool } from "./tools/read.ts";
+import { CLAUDE_CODE_PROVIDER } from "./claude-code/constants.ts";
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
 import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL } from "../core/native-messages.ts";
@@ -191,7 +193,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	// ("practice" is not a ModelRole) honest about that.
 	const engine = opts.engine ?? piEngineFor(kind as "prober" | "teacher");
 	const stopper = makeQuestionStopper(kind);
-	const extraTools = opts.extraTools ?? [];
+	const extraTools = engine.model.provider === CLAUDE_CODE_PROVIDER ? [] : (opts.extraTools ?? []);
 	const composed = opts.promptSwitches
 		? composeInstructions(kind, opts.promptSwitches)
 		: composedInstructions[kind]!;
@@ -213,9 +215,11 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 			// Match Claude across providers (including OpenRouter), not the API
 			// transport. Explicit test registries remain caller-owned.
 			tools: [
-				...tools,
+				...tools.map((tool) => tool.name === "read" && tool.execute === readTool.execute
+					? { ...tool, execute: createReadTool(engine.model).execute as AgentTool<any>["execute"] }
+					: tool),
 				...extraTools,
-				...(opts.tools === undefined && engine.model.id.toLowerCase().includes("claude")
+				...(opts.tools === undefined && (engine.model.provider === CLAUDE_CODE_PROVIDER || engine.model.id.toLowerCase().includes("claude"))
 					? [withArgumentHeal(sendToUserTool)]
 					: []),
 			],

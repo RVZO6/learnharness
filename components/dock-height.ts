@@ -142,16 +142,20 @@ export function useDockHeight({
 	}, [measure, mode, expanded, scrollRef, blockRef, viewportRef, bodyRef, contentRef]);
 }
 
-/** Overlay and transcript are siblings. Keep native scrolling in an actual
- * scroll container (including the short-window viewport), then forward only
- * at its edge. overflow:hidden/visible boxes cannot consume the wheel. */
+/** Keep question scrolling inside the dock, including in short windows where
+ * the whole-content viewport scrolls instead. Other dock areas can still
+ * forward wheel input to the sibling transcript. */
 export function forwardDockWheel(event: WheelEvent, root: HTMLElement, transcript: HTMLElement) {
 	if (event.deltaY === 0) return;
+	let overQuestion = false;
 	for (let n = event.target as HTMLElement | null; n && n !== root; n = n.parentElement) {
+		if (n.hasAttribute?.("data-dock-scroll-area")) overQuestion = true;
 		if (!(n instanceof HTMLElement) || !/^(auto|scroll)$/.test(getComputedStyle(n).overflowY)) continue;
 		if (n.scrollHeight - n.clientHeight < 2) continue;
 		if (event.deltaY < 0 ? n.scrollTop > 0 : n.scrollTop < n.scrollHeight - n.clientHeight - 0.5) return;
+		if (overQuestion) { event.preventDefault(); return; }
 	}
 	event.preventDefault();
+	if (overQuestion) return;
 	transcript.scrollTop += event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? transcript.clientHeight : 1);
 }

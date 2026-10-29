@@ -47,12 +47,13 @@ import type { ModelsSettings } from "@/src/core";
 import { MENU_CLOSE_EVENT, MENU_OPEN_EVENT } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { KeysSection } from "./keys-section.tsx";
-import { ConnectionsSection, type ConnectionListCache } from "./connections-section.tsx";
+import { ConnectionsSection, useConnectionListCache, type ConnectionListCache } from "./connections-section.tsx";
 import { Hint } from "@/components/ui/hint";
 import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
 import { KeyboardSection } from "./keyboard-section.tsx";
 import { ChatGPTUIProvider } from "./chatgpt-connection.tsx";
 import { NativeSubscriptionUIProvider } from "./subscription-connections.tsx";
+import { useSettingsPreload, type SettingsPreload } from "./settings-preload.ts";
 
 /** Owner (2026-09-20): hints earn their place — mechanics-explaining
  *  prose is out; only the keyboard note stays (storage location is a
@@ -63,7 +64,7 @@ const SECTIONS = [
 	{ id: "connections", label: "Connections" },
 	{ id: "appearance", label: "Appearance" },
 	{ id: "graph", label: "Graph" },
-	{ id: "keyboard", label: "Keyboard", hint: "Stored on this device" },
+	{ id: "keyboard", label: "Keyboard" },
 	{ id: "general", label: "General" },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -86,6 +87,8 @@ export function SettingsDialogProvider({
 	const [show, setShow] = useState(false);
 	const [landOn, setLandOn] = useState<SectionId>("keys");
 	const [landOnRow, setLandOnRow] = useState<string | null>(null);
+	const connectionListCache = useConnectionListCache();
+	const preload = useSettingsPreload();
 	const open = useCallback((section?: string, row?: string) => {
 		setLandOn(section ? section as SectionId : "keys");
 		setLandOnRow(row ?? null);
@@ -96,7 +99,7 @@ export function SettingsDialogProvider({
 		<ChatGPTUIProvider><NativeSubscriptionUIProvider><DialogContext.Provider value={{ open }}>
 			{children}
 			{show && (
-				<SettingsDialog onClose={() => setShow(false)} initialSection={landOn} initialRow={landOnRow} />
+				<SettingsDialog onClose={() => setShow(false)} initialSection={landOn} initialRow={landOnRow} connectionListCache={connectionListCache} preload={preload} />
 			)}
 		</DialogContext.Provider></NativeSubscriptionUIProvider></ChatGPTUIProvider>
 	);
@@ -110,11 +113,15 @@ function SettingsDialog({
 	onClose,
 	initialSection,
 	initialRow,
+	connectionListCache,
+	preload,
 }: {
 	onClose: () => void;
 	initialSection: SectionId;
 	/** The keys-section row to unfold (see DialogContext above). */
 	initialRow: string | null;
+	connectionListCache: ConnectionListCache;
+	preload: SettingsPreload;
 }) {
 	const backdropDismiss = useBackdropDismiss(onClose);
 	// Plain dim backdrop (no blur — nothing decorative); a genuine
@@ -125,7 +132,7 @@ function SettingsDialog({
 			data-testid="settings-backdrop"
 			{...backdropDismiss}
 		>
-			<SettingsDialogBody onClose={onClose} initialSection={initialSection} initialRow={initialRow} />
+			<SettingsDialogBody onClose={onClose} initialSection={initialSection} initialRow={initialRow} connectionListCache={connectionListCache} preload={preload} />
 		</div>,
 		document.body,
 	);
@@ -137,22 +144,27 @@ export function SettingsDialogBody({
 	onClose,
 	initialSection = "keys",
 	initialRow = null,
+	connectionListCache: sharedConnectionListCache,
+	preload,
 }: {
 	onClose: () => void;
 	initialSection?: SectionId;
 	/** The keys row to unfold on arrival (null = none). While-open
 	 *  retargets follow it exactly like initialSection below. */
 	initialRow?: string | null;
+	connectionListCache?: ConnectionListCache;
+	preload?: SettingsPreload;
 }) {
 	const { onAppearanceChange } = useAppearance();
 	const [record, setRecord] = useState<UserSettings | null | undefined>(
-		undefined,
+		() => preload?.settings.current,
 	);
 	const [error, setError] = useState<string | null>(null);
 	// MenuShell open-count — drives the content column's scroll lock.
 	const [openMenus, setOpenMenus] = useState(0);
 	const contentRef = useRef<HTMLDivElement | null>(null);
-	const connectionListCache = useRef<ConnectionListCache["current"]>(null);
+	const localConnectionListCache = useRef<ConnectionListCache["current"]>(null);
+	const connectionListCache = sharedConnectionListCache ?? localConnectionListCache;
 	// Scroll-lock (fix wave, owner ruling: the scrollbar MAY stay,
 	// scrolling must NOT happen, nothing may move): the content column
 	// keeps overflow-y-auto — the scrollbar and every width stay exactly
@@ -196,15 +208,16 @@ export function SettingsDialogBody({
 	// (no record = factory everything), not a failure — the error state is
 	// a non-200 or a network throw only.
 	useEffect(() => {
-		fetch("/api/settings")
+		let cancelled = false;
+		const request = preload?.settings.load() ?? fetch("/api/settings")
 			.then((r) =>
 				r.ok ? r.json() : Promise.reject(new Error(`status ${r.status}`)),
 			)
-			.then((body: { settings: UserSettings | null }) =>
-				setRecord(body.settings ?? { version: CURRENT_SETTINGS_VERSION }),
-			)
-			.catch(() => setRecord(null));
-	}, []);
+			.then((body: { settings: UserSettings | null }) => body.settings ?? { version: CURRENT_SETTINGS_VERSION });
+		void request.then((record) => { if (!cancelled) setRecord(record); })
+			.catch(() => { if (!cancelled && !preload?.settings.current) setRecord(null); });
+		return () => { cancelled = true; };
+	}, [preload]);
 
 	// Escape closes — the layered-dismiss convention (Esc is dead for the
 	// sections' own editors while they hold focus; this listener is the
@@ -253,15 +266,16 @@ export function SettingsDialogBody({
 			const stored = (
 				(await res.json().catch(() => null)) as { settings?: UserSettings } | null
 			)?.settings;
-			setRecord(
-				(prev) =>
-					stored ?? ({ ...(prev ?? {}), [section]: body }) as UserSettings,
-			);
+			setRecord((prev) => {
+				const next = stored ?? ({ ...(prev ?? {}), [section]: body }) as UserSettings;
+				preload?.settings.set(next);
+				return next;
+			});
 			notifySettingsSaved(section);
 			if (section === "appearance")
 				onAppearanceChange(body as AppearanceSettings);
 		},
-		[onAppearanceChange],
+		[onAppearanceChange, preload],
 	);
 
 	return (
@@ -373,7 +387,7 @@ export function SettingsDialogBody({
 							)}
 							{active === "keys" && (
 								<SettingsSection title="Providers" testid="section-keys">
-									<KeysSection initialRow={initialRow ?? undefined} />
+									<KeysSection initialRow={initialRow ?? undefined} preload={preload} />
 								</SettingsSection>
 							)}
 							{active === "agent" && (
@@ -430,7 +444,6 @@ export function SettingsDialogBody({
 							{active === "keyboard" && (
 								<SettingsSection
 									title="Keyboard"
-									hint="Stored on this device"
 									testid="section-keyboard"
 								>
 									<KeyboardSection />

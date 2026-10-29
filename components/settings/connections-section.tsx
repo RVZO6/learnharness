@@ -71,22 +71,49 @@ function statusLine(s: ServerStatus): string {
 	return on === s.tools.length ? `${on} abilit${on === 1 ? "y" : "ies"}` : `${on} of ${s.tools.length} abilities`;
 }
 
-/** Dialog-scoped list snapshot. Never persisted or shared between Settings dialogs. */
-export interface ConnectionListCache { current: ServerStatus[] | null }
+/** Quote each word so the existing command parser can restore it exactly. */
+function commandLine(command: string, args: string[]): string {
+	return [command, ...args].map((word) => /^[a-zA-Z0-9_./:@%+=,-]+$/.test(word) ? word : `"${word.replace(/["\\]/g, "\\$&")}"`).join(" ");
+}
+
+/** App-scoped, in-memory snapshot and the initial startup request. */
+export interface ConnectionListCache {
+	current: ServerStatus[] | null;
+	pending?: Promise<{ servers: ServerStatus[] }>;
+}
+
+/** Start configured connections at app startup, before Settings is opened. */
+export function useConnectionListCache(): ConnectionListCache {
+	const cache = useRef<ConnectionListCache>({ current: null }).current;
+	useEffect(() => {
+		let active = true;
+		const request = api<{ servers: ServerStatus[] }>("/api/mcp");
+		cache.pending = request;
+		void request.then((body) => {
+			if (active && cache.current === null) cache.current = body.servers;
+		}).catch(() => {}).finally(() => {
+			if (cache.pending === request) delete cache.pending;
+		});
+		return () => { active = false; };
+	}, [cache]);
+	return cache;
+}
 
 export function ConnectionsSection({ cache }: { cache?: ConnectionListCache } = {}) {
 	const [servers, setServers] = useState<ServerStatus[] | null>(() => cache?.current ?? null);
 	const [view, setView] = useState<View>({ kind: "list" });
 	const [loadError, setLoadError] = useState<string | null>(null);
+	const edits = useRef(0);
 
 	useEffect(() => {
-		if (cache) cache.current = servers;
+		if (cache && servers !== null) cache.current = servers;
 	}, [cache, servers]);
 
 	useEffect(() => {
 		let cancelled = false;
-		void api<{ servers: ServerStatus[] }>("/api/mcp").then((body) => {
-			if (cancelled) return;
+		const requestEdits = edits.current;
+		void (cache?.pending ?? api<{ servers: ServerStatus[] }>("/api/mcp")).then((body) => {
+			if (cancelled || requestEdits !== edits.current) return;
 			setServers(body.servers);
 			setLoadError(null);
 		}).catch((e) => {
@@ -95,7 +122,8 @@ export function ConnectionsSection({ cache }: { cache?: ConnectionListCache } = 
 		return () => { cancelled = true; };
 	}, []);
 
-	const replace = (server: ServerStatus, oldName = server.name) =>
+	const replace = (server: ServerStatus, oldName = server.name) => {
+		edits.current++;
 		setServers((list) => {
 			const rest = (list ?? []).filter((s) => s.name !== oldName && s.name !== server.name);
 			const at = (list ?? []).findIndex((s) => s.name === oldName);
@@ -103,6 +131,7 @@ export function ConnectionsSection({ cache }: { cache?: ConnectionListCache } = 
 			rest.splice(Math.min(at, rest.length), 0, server);
 			return rest;
 		});
+	};
 
 	if (view.kind === "detail") {
 		const server = servers?.find((s) => s.name === view.name);
@@ -117,6 +146,7 @@ export function ConnectionsSection({ cache }: { cache?: ConnectionListCache } = 
 							if (next.name !== view.name) setView({ kind: "detail", name: next.name });
 						}}
 						onRemoved={() => {
+							edits.current++;
 							setServers((list) => (list ?? []).filter((s) => s.name !== view.name));
 							setView({ kind: "list" });
 						}}
@@ -127,10 +157,10 @@ export function ConnectionsSection({ cache }: { cache?: ConnectionListCache } = 
 	}
 
 	return (
-		<SettingsSection title="Connections" hint="Let the teacher look things up in your other apps, like your course site or notes." testid="section-connections">
+		<SettingsSection title="Connections" testid="section-connections">
 			<div data-testid="connections-list">
 				{loadError && <p role="alert" className="px-1 text-xs text-red-500">{loadError}</p>}
-				{servers === null && !loadError && <p className="px-1 text-xs text-muted-foreground/70">Loading connections…</p>}
+				{servers === null && !loadError && <p role="status" className="min-h-10 px-1 text-xs text-muted-foreground/70">Loading connections…</p>}
 				<div className="flex flex-col">
 					{servers?.map((s) => (
 						<ServerRow
@@ -473,6 +503,17 @@ function DetailView({
 	}
 
 	const anyChanges = s.tools.some((t) => t.kind === "changes");
+	const endpoint = "url" in s.config ? s.config.url : commandLine(s.config.command, s.config.args ?? []);
+	const endpointLabel = s.transport === "online" ? "URL" : "Command";
+	async function saveEndpoint() {
+		if (s.transport === "online") {
+			if (await patch({ url: draft.trim() })) setEditing(null);
+			return;
+		}
+		const [command, ...args] = splitCommandLine(draft.trim());
+		if (!command) { setError("Enter a command."); return; }
+		if (await patch({ command, args })) setEditing(null);
+	}
 
 	return (
 		<div className="flex flex-col gap-3" data-testid="connection-detail">
@@ -480,7 +521,60 @@ function DetailView({
 				<div className="flex min-w-0 items-center gap-3">
 					<button type="button" onClick={onBack} aria-label="Back to Connections" className={`shrink-0 ${LINK}`}>←</button>
 					<div className="min-w-0">
-						<h2 className="font-prose text-(length:--lh-prose-size)">{displayName(s.name)}</h2>
+						<div className="flex flex-wrap items-center gap-3">
+							<h2 className="font-prose text-(length:--lh-prose-size)">{displayName(s.name)}</h2>
+
+							<div className="flex flex-wrap items-center gap-3" data-testid="connection-actions">
+								{editing === "__name" ? (
+									<span className="flex items-center gap-2">
+										<input
+											value={draft}
+											onChange={(e) => setDraft(e.target.value.replace(/[^a-zA-Z0-9_-]/g, "-"))}
+											onKeyDown={(e) => {
+												if (e.key === "Enter" && draft) void patch({ rename: draft }).then(() => setEditing(null));
+												if (e.key === "Escape") setEditing(null);
+											}}
+											autoFocus
+											aria-label="New name"
+											className={`${INPUT} max-w-48`}
+										/>
+										<button type="button" disabled={busy || !draft} onClick={() => void patch({ rename: draft }).then(() => setEditing(null))} className="text-xs text-foreground underline-offset-2 hover:underline">
+											Save
+										</button>
+									</span>
+								) : (
+									<button
+										type="button"
+										onClick={() => {
+											setEditing("__name");
+											setDraft(s.name);
+										}}
+										className={LINK}
+									>
+										Rename
+									</button>
+								)}
+								<span className="flex items-center">
+									{confirmRemove ? (
+										<span className="flex items-center gap-3 text-xs">
+											<span className="text-muted-foreground">Remove {displayName(s.name)}?</span>
+											<button type="button" disabled={busy} onClick={() => void remove()} className="text-red-500 underline-offset-2 hover:underline">
+												Remove
+											</button>
+											<button type="button" onClick={() => setConfirmRemove(false)} className={LINK}>
+												Keep
+											</button>
+										</span>
+									) : (
+										<Hint label="Removes it from LearnHarness only" side="top">
+											<button type="button" onClick={() => setConfirmRemove(true)} className={`${LINK} hover:text-red-500`}>
+												Remove
+											</button>
+										</Hint>
+									)}
+								</span>
+							</div>
+						</div>
 						{s.summary && <span className="block text-xs text-muted-foreground/70">{s.summary}</span>}
 					</div>
 				</div>
@@ -492,56 +586,6 @@ function DetailView({
 				</span>
 			</div>
 
-			<div className="flex flex-wrap items-center gap-4" data-testid="connection-actions">
-				{editing === "__name" ? (
-					<span className="flex items-center gap-2">
-						<input
-							value={draft}
-							onChange={(e) => setDraft(e.target.value.replace(/[^a-zA-Z0-9_-]/g, "-"))}
-							onKeyDown={(e) => {
-								if (e.key === "Enter" && draft) void patch({ rename: draft }).then(() => setEditing(null));
-								if (e.key === "Escape") setEditing(null);
-							}}
-							autoFocus
-							aria-label="New name"
-							className={`${INPUT} max-w-48`}
-						/>
-						<button type="button" disabled={busy || !draft} onClick={() => void patch({ rename: draft }).then(() => setEditing(null))} className="text-xs text-foreground underline-offset-2 hover:underline">
-							Save
-						</button>
-					</span>
-				) : (
-					<button
-						type="button"
-						onClick={() => {
-							setEditing("__name");
-							setDraft(s.name);
-						}}
-						className={LINK}
-					>
-						Rename
-					</button>
-				)}
-				<span className="ml-auto">
-					{confirmRemove ? (
-						<span className="flex items-center gap-3 text-xs">
-							<span className="text-muted-foreground">Remove {displayName(s.name)}?</span>
-							<button type="button" disabled={busy} onClick={() => void remove()} className="text-red-500 underline-offset-2 hover:underline">
-								Remove
-							</button>
-							<button type="button" onClick={() => setConfirmRemove(false)} className={LINK}>
-								Keep
-							</button>
-						</span>
-					) : (
-						<Hint label="Removes it from LearnHarness only" side="top">
-							<button type="button" onClick={() => setConfirmRemove(true)} className={`${LINK} hover:text-red-500`}>
-								Remove connection
-							</button>
-						</Hint>
-					)}
-				</span>
-			</div>
 
 			{s.state === "error" && (
 				<div className="text-xs">
@@ -559,14 +603,36 @@ function DetailView({
 				</div>
 			)}
 
+			<div className="flex flex-col gap-2" data-testid="connection-endpoint">
+				<p className="text-xs text-muted-foreground">Setup</p>
+				{editing === "__endpoint" ? (
+					<div className="lh-connection-row">
+						<span className="min-w-0 truncate text-xs text-foreground">{endpointLabel}</span>
+						<input aria-label={endpointLabel} value={draft} onChange={(event) => setDraft(event.target.value)} disabled={busy} autoFocus spellCheck={false} className={INPUT} onKeyDown={(event) => {
+							if (event.key === "Enter") void saveEndpoint();
+							if (event.key === "Escape") { setEditing(null); setError(null); }
+						}} />
+						<button type="button" disabled={busy} onClick={() => void saveEndpoint()} className={LINK}>Save</button>
+						<button type="button" disabled={busy} onClick={() => { setEditing(null); setError(null); }} className={LINK}>Cancel</button>
+					</div>
+				) : (
+					<div className="lh-connection-row">
+						<span className="min-w-0 truncate text-xs text-foreground">{endpointLabel}</span>
+						<span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">{endpoint}</span>
+						<button type="button" disabled={busy} aria-label={`Edit ${endpointLabel.toLowerCase()}`} onClick={() => { setDraft(endpoint); setEditing("__endpoint"); setError(null); }} className={LINK}>Edit</button>
+						<span aria-hidden="true" className="text-xs invisible">Remove</span>
+					</div>
+				)}
+			</div>
+
 			{s.transport === "program" && <VariablesEditor key={s.name} server={s} busy={busy} onSave={patch} />}
 
 			{s.transport === "online" && s.fields.length > 0 && (
-				<SettingsGroup label="Setup" headingClassName="normal-case tracking-normal">
+				<SettingsGroup label="Variables" headingClassName="normal-case tracking-normal" className="mt-2 pt-3">
 					{s.fields.map((f) =>
 						editing === f.key ? (
-							<div key={f.key} className="flex items-center gap-2">
-								<span className="shrink-0 font-ui text-xs text-foreground">{f.label}</span>
+							<div key={f.key} className="lh-connection-row">
+								<span className="min-w-0 truncate font-ui text-xs text-foreground">{f.label}</span>
 								<input
 									type={f.secret ? "password" : "text"}
 									value={draft}
@@ -596,10 +662,12 @@ function DetailView({
 									setEditing(f.key);
 									setDraft(f.secret ? "" : f.value);
 								}}
-								className="flex items-center justify-between gap-3 rounded-sm px-1 py-1.5 text-left transition-colors hover:bg-accent/50"
+								className="lh-connection-row w-full rounded-sm py-1.5 text-left transition-colors hover:bg-accent/50"
 							>
-								<span className="font-ui text-xs text-foreground">{f.label}</span>
-								<span className="truncate font-mono text-[11px] text-muted-foreground">{f.value || "not set"}</span>
+								<span className="min-w-0 truncate font-ui text-xs text-foreground">{f.label}</span>
+								<span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">{f.value || "not set"}</span>
+								<span className={LINK}>Edit</span>
+								<span aria-hidden="true" className="invisible text-xs">Remove</span>
 							</button>
 						),
 					)}
@@ -607,9 +675,9 @@ function DetailView({
 			)}
 
 			{s.tools.length > 0 && (
-				<div className="mt-5 border-t border-border/60 pt-4" data-testid="connection-abilities">
+				<div className="mt-2 border-t border-border/60 pt-3" data-testid="connection-abilities">
 					<button type="button" aria-expanded={abilitiesExpanded} aria-controls="connection-abilities-list" onClick={() => setAbilitiesExpanded((expanded) => !expanded)} className="flex w-full items-center justify-between gap-3 text-left text-xs text-muted-foreground hover:text-foreground">
-						<span className="flex items-center gap-2"><span aria-hidden="true">{abilitiesExpanded ? "▾" : "▸"}</span>Tools</span>
+						<span className="flex items-center gap-2">Tools<span aria-hidden="true">{abilitiesExpanded ? "▾" : "▸"}</span></span>
 						<span>{s.tools.filter((t) => t.enabled).length} of {s.tools.length} enabled</span>
 					</button>
 					<div id="connection-abilities-list" hidden={!abilitiesExpanded} className="mt-2 flex flex-col gap-2">
@@ -679,9 +747,9 @@ function VariablesEditor({ server, busy, onSave }: {
 	}
 	const form = (
 		<div className="flex flex-col gap-2">
-			<div className="flex items-center gap-2">
+			<div className="lh-connection-row">
 				<input aria-label="Variable name" value={name} disabled={busy} onChange={(event) => setName(event.target.value)}
-					placeholder="NAME" spellCheck={false} className={INPUT + " max-w-48"} />
+					placeholder="NAME" spellCheck={false} className={INPUT} />
 				<input aria-label="Variable value" type={original?.secret || /(key|token|secret|password|passwd|auth|credential|bearer|cookie)/i.test(name) ? "password" : "text"}
 					value={value} disabled={busy} onChange={(event) => { setValue(event.target.value); setChanged(true); }}
 					placeholder={original?.secret && !changed ? "Unchanged" : "value"} autoComplete="off" spellCheck={false} className={INPUT} />
@@ -692,10 +760,10 @@ function VariablesEditor({ server, busy, onSave }: {
 		</div>
 	);
 	return (
-		<SettingsGroup label="Variables" headingClassName="normal-case tracking-normal" testid="connection-variables">
+		<SettingsGroup label="Variables" headingClassName="normal-case tracking-normal" className="mt-2 pt-3" testid="connection-variables">
 			{fields.map((field) => editing === field.key ? <div key={field.key}>{form}</div> : (
-				<div key={field.key} className="flex items-center gap-3">
-					<span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">{field.key}</span>
+				<div key={field.key} className="lh-connection-row">
+					<span className="min-w-0 truncate font-mono text-xs text-foreground">{field.key}</span>
 					<span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">{field.value || "empty"}</span>
 					<button type="button" disabled={busy} aria-label={"Edit " + field.key} onClick={() => begin(field)} className={LINK}>Edit</button>
 					<button type="button" disabled={busy} aria-label={"Remove " + field.key} onClick={() => void onSave({ removeEnv: [field.key] })} className={LINK}>Remove</button>

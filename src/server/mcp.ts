@@ -425,6 +425,10 @@ export async function addMcpServer(name: string, config: McpServerConfig, file: 
 }
 
 export interface McpServerPatch {
+	/** Change the endpoint or launch program without replacing its credentials. */
+	url?: string;
+	command?: string;
+	args?: string[];
 	disabled?: boolean;
 	tools?: Record<string, boolean>;
 	/** Setup values by env/header key; masked values ("••••…") are ignored. */
@@ -435,6 +439,15 @@ export interface McpServerPatch {
 }
 
 export async function updateMcpServer(name: string, patch: McpServerPatch, file: string = MCP_CONFIG_FILE): Promise<McpServerStatus | null> {
+	if (patch.url !== undefined && (typeof patch.url !== "string" || !/^https?:\/\/\S+$/.test(patch.url.trim()))) {
+		throw new McpConfigError("Enter an HTTP or HTTPS link.");
+	}
+	if (patch.command !== undefined && (typeof patch.command !== "string" || !patch.command.trim())) {
+		throw new McpConfigError("Enter a command.");
+	}
+	if (patch.args !== undefined && (!Array.isArray(patch.args) || patch.args.some((arg) => typeof arg !== "string"))) {
+		throw new McpConfigError("Command arguments must be a list of strings.");
+	}
 	if (patch.values !== undefined && (
 		typeof patch.values !== "object" || patch.values === null || Array.isArray(patch.values) ||
 		Object.entries(patch.values).some(([key, value]) => !key.trim() || typeof value !== "string")
@@ -447,6 +460,14 @@ export async function updateMcpServer(name: string, patch: McpServerPatch, file:
 		const entry = servers[name];
 		if (!entry) throw new McpConfigError(`No connection named “${name}”.`);
 		let next: McpServerConfig = { ...entry };
+		if (patch.url !== undefined) {
+			if (!isHttpConfig(next)) throw new McpConfigError("A local program does not have a link.");
+			next = { ...next, url: patch.url.trim() };
+		}
+		if (patch.command !== undefined || patch.args !== undefined) {
+			if (isHttpConfig(next)) throw new McpConfigError("An online connection does not have a command.");
+			next = { ...next, ...(patch.command !== undefined ? { command: patch.command.trim() } : {}), ...(patch.args !== undefined ? { args: patch.args } : {}) };
+		}
 		if (patch.disabled !== undefined) {
 			if (patch.disabled) next.disabled = true;
 			else delete next.disabled;

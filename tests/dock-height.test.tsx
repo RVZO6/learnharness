@@ -228,32 +228,33 @@ describe("measured question/practice DOM and observer lifecycle", () => {
 	});
 });
 
-describe("wheel routing — question, short-window content, then transcript", () => {
-	it("keeps native wheel input in the question and then the whole-content viewport", () => {
+describe("wheel routing — question boundaries and transcript", () => {
+	it("contains question scrolling and preserves the short-window viewport", () => {
 		const root = document.createElement("div");
-		root.innerHTML = '<div data-viewport style="overflow-y:auto"><div data-question style="overflow-y:auto"><span>text</span></div></div>';
+		root.innerHTML = '<div data-viewport style="overflow-y:auto"><div data-dock-scroll-area style="overflow-y:auto"><span>text</span></div><span data-outside>outside</span></div>';
 		const viewport = root.firstElementChild as HTMLElement;
 		const question = viewport.firstElementChild as HTMLElement;
 		const transcript = document.createElement("div"); transcript.scrollTop = 100;
 		for (const el of [viewport, question]) { el.dataset.scrollHeight = "400"; el.dataset.clientHeight = "100"; el.scrollTop = 50; }
-		const wheel = (deltaY: number, deltaMode = 0) => {
+		const wheel = (deltaY: number, deltaMode = 0, target: Element | null = question.firstElementChild) => {
 			let prevented = false;
-			forwardDockWheel({ target: question.firstElementChild, deltaY, deltaMode, preventDefault() { prevented = true; } } as unknown as WheelEvent, root, transcript);
+			forwardDockWheel({ target, deltaY, deltaMode, preventDefault() { prevented = true; } } as unknown as WheelEvent, root, transcript);
 			return prevented;
 		};
 		assert.equal(wheel(-20), false, "question can scroll up");
 		question.scrollTop = 0;
-		assert.equal(wheel(-20), false, "whole content can scroll up when question is at its edge");
-		viewport.scrollTop = 0;
-		assert.equal(wheel(-20), true);
-		assert.equal(transcript.scrollTop, 80);
+		assert.equal(wheel(-20), true, "question top does not scroll the viewport or transcript");
 		question.scrollTop = viewport.scrollTop = 300;
-		assert.equal(wheel(1, 1), true);
-		assert.equal(transcript.scrollTop, 96, "line-mode wheel is normalized");
-		viewport.style.overflowY = "visible"; viewport.scrollTop = 50;
-		assert.equal(wheel(-20), false, "question still consumes upward movement");
-		question.style.overflowY = "hidden";
-		assert.equal(wheel(-20), true, "hidden and visible boxes are not scroll containers");
+		assert.equal(wheel(1), true, "question bottom is contained too");
+		assert.equal(transcript.scrollTop, 100);
+		question.dataset.scrollHeight = "100"; viewport.scrollTop = 50;
+		assert.equal(wheel(-20), false, "short-window viewport can scroll when question does not");
+		viewport.scrollTop = 0;
+		assert.equal(wheel(-20), true, "short-window viewport edge is contained");
+		viewport.style.overflowY = "visible";
+		assert.equal(wheel(-20), true, "a short question does not forward to the transcript");
+		assert.equal(wheel(1, 1, viewport.querySelector("[data-outside]")), true);
+		assert.equal(transcript.scrollTop, 116, "outside the question, line-mode wheel is forwarded");
 		assert.equal(wheel(0), false);
 	});
 });

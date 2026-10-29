@@ -10,6 +10,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { PATHS } from "../../config.ts";
+import { CUSTOM_PROVIDER } from "../core/auth-keys.ts";
 import { emit } from "../core/events.ts";
 import type { ChatStore } from "../core/ports.ts";
 import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, PlanTree, TurnUsage } from "../core/contracts.ts";
@@ -73,7 +74,11 @@ function getChat(id: string): ChatRecord | null {
 		console.error(`[chat ${id}] record stamped with schema version ${v} > ${CURRENT_CHAT_VERSION} — this app build is older; refusing to read it`);
 		return null;
 	}
-	return parsed as ChatRecord;
+	const record = parsed as ChatRecord;
+	let legacy: unknown;
+	try { legacy = JSON.parse(fs.readFileSync(path.join(PATHS.data, "custom-connections.migrated"), "utf8")).provider; } catch { /* No migration marker. */ }
+	if (legacy && record.settings?.model?.provider === legacy) record.settings.model.provider = CUSTOM_PROVIDER.id;
+	return record;
 }
 
 function listChats(): ChatSummary[] {

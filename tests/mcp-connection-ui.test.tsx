@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
-import { ConnectionsSection, type ConnectionListCache } from "../components/settings/connections-section.tsx";
+import { existsSync, readFileSync } from "node:fs";
+import puppeteer from "puppeteer-core";
+import { ConnectionsSection, useConnectionListCache, type ConnectionListCache } from "../components/settings/connections-section.tsx";
 
 (globalThis as Record<string, unknown>).React = React;
 const dom = parseHTML("<html><body></body></html>");
@@ -152,6 +154,64 @@ test("a request completing after navigation cannot replace the retained connecti
 	assert.equal(document.body.textContent, "Another settings screen");
 });
 
+function StartupHarness({ open }: { open: boolean }) {
+	const cache = useConnectionListCache();
+	return open ? <ConnectionsSection cache={cache} /> : <div>App</div>;
+}
+
+test("startup preloads connections and retains them across Settings visits while refreshing", async () => {
+	const canvas = { name: "canvas", state: "connected", transport: "program", summary: "", tools: [], config: { command: "canvas-mcp-server" }, fields: [], details: "" };
+	let resolveStartup!: (response: Response) => void;
+	let resolveRefresh!: (response: Response) => void;
+	let calls = 0;
+	globalThis.fetch = () => new Promise<Response>((resolve) => {
+		if (++calls === 1) resolveStartup = resolve;
+		else resolveRefresh = resolve;
+	});
+	host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+	await act(async () => root!.render(<StartupHarness open={false} />));
+	assert.equal(calls, 1, "loading begins before Settings opens");
+	await act(async () => resolveStartup(Response.json({ servers: [canvas] })));
+	await act(async () => root!.render(<StartupHarness open />));
+	assert(byTest("connection-canvas"), "the startup snapshot appears immediately");
+	assert.equal(calls, 2, "opening Connections refreshes the snapshot");
+	await act(async () => root!.render(<StartupHarness open={false} />));
+	await act(async () => resolveRefresh(Response.json({ servers: [] })));
+	await act(async () => root!.render(<StartupHarness open />));
+	assert(byTest("connection-canvas"), "a refresh after closing must not erase the snapshot");
+});
+
+test("opening Connections during startup shares the request and shows loading until it finishes", async () => {
+	let resolve!: (response: Response) => void;
+	let calls = 0;
+	globalThis.fetch = () => { calls++; return new Promise<Response>((done) => { resolve = done; }); };
+	host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+	await act(async () => root!.render(<StartupHarness open={false} />));
+	await act(async () => root!.render(<StartupHarness open />));
+	assert.equal(calls, 1, "the initial request is not duplicated");
+	assert.equal(document.querySelector('[role="status"]')?.textContent, "Loading connections…");
+	await act(async () => resolve(Response.json({ servers: [] })));
+	assert(!document.querySelector('[role="status"]'));
+	assert(byTest("connections-add"));
+});
+
+test("a failed startup load is visible and reopening retries", async () => {
+	let calls = 0;
+	let failStartup!: (response: Response) => void;
+	globalThis.fetch = () => ++calls === 1
+		? new Promise<Response>((resolve) => { failStartup = resolve; })
+		: Promise.resolve(Response.json({ servers: [] }));
+	host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+	await act(async () => root!.render(<StartupHarness open={false} />));
+	await act(async () => root!.render(<StartupHarness open />));
+	await act(async () => failStartup(new Response(JSON.stringify({ error: "Unavailable" }), { status: 503 })));
+	assert.equal(document.querySelector('[role="alert"]')?.textContent, "Unavailable");
+	await act(async () => root!.render(<StartupHarness open={false} />));
+	await act(async () => root!.render(<StartupHarness open />));
+	assert.equal(calls, 2);
+	assert(!document.querySelector('[role="alert"]'));
+});
+
 const serverFixture = (error = "It could not start.") => ({
 	name: "canvas", state: "error", transport: "program", summary: "", error, details: "raw diagnostics",
 	tools: [], config: { command: "canvas-mcp-server", env: { API_TOKEN: "••••1234", REGION: "ca" } },
@@ -159,6 +219,24 @@ const serverFixture = (error = "It could not start.") => ({
 		{ where: "env", key: "API_TOKEN", label: "API token", secret: true, value: "••••1234" },
 		{ where: "env", key: "REGION", label: "Region", secret: false, value: "ca" },
 	],
+});
+
+test("a delayed refresh cannot restore a connection removed while it was pending", async () => {
+	const server = { ...serverFixture(), state: "error" as const, transport: "program" as const, fields: [] };
+	const cache: ConnectionListCache = { current: [server] };
+	let finishRefresh!: (response: Response) => void;
+	globalThis.fetch = (_url, init) => init?.method === "DELETE"
+		? Promise.resolve(Response.json({}))
+		: new Promise<Response>((resolve) => { finishRefresh = resolve; });
+	host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+	await act(async () => root!.render(<ConnectionsSection cache={cache} />));
+	await click(byTest("connection-canvas").querySelector("button")!);
+	await click(button("Remove"));
+	await click(button("Remove"));
+	assert(!byTest("connection-canvas"));
+	await act(async () => finishRefresh(Response.json({ servers: [server] })));
+	assert(!byTest("connection-canvas"));
+	assert.deepEqual(cache.current, []);
 });
 function labelled(label: string) {
 	return [...document.querySelectorAll<HTMLElement>("[aria-label]")].find((element) => element.getAttribute("aria-label") === label)!;
@@ -279,7 +357,7 @@ test("connection details replace the section heading and put Back beside the con
 	await mount([server], false);
 	const hint = "Let the teacher look things up in your other apps, like your course site or notes.";
 	assert.equal(byTest("section-connections").querySelector("h2")?.textContent, "Connections");
-	assert(document.body.textContent?.includes(hint));
+	assert(!document.body.textContent?.includes(hint));
 	const row = byTest("connection-canvas");
 	assert(!row.querySelector('[role="switch"]'), "the list must not duplicate the connection switch");
 	assert(row.textContent?.includes("Connected"));
@@ -290,7 +368,7 @@ test("connection details replace the section heading and put Back beside the con
 	const back = labelled("Back to Connections");
 	assert.equal(title.textContent, "Canvas");
 	assert.equal(detail.firstElementChild, back.parentElement?.parentElement);
-	assert.equal(back.nextElementSibling, title.parentElement);
+	assert(back.nextElementSibling === title.parentElement?.parentElement);
 	assert.equal(back.textContent, "←");
 	assert(!document.body.textContent?.includes(hint));
 	assert.equal(byTest("section-connections").querySelectorAll("h2").length, 1);
@@ -306,7 +384,7 @@ test("connection details replace the section heading and put Back beside the con
 	assert((labelled("canvas list_courses") as HTMLButtonElement).disabled);
 	await click(back);
 	assert.equal(byTest("section-connections").querySelector("h2")?.textContent, "Connections");
-	assert(document.body.textContent?.includes(hint));
+	assert(!document.body.textContent?.includes(hint));
 	assert(byTest("connection-canvas").textContent?.includes("Off"));
 });
 
@@ -325,11 +403,11 @@ test("management and variables precede collapsed abilities with a live enabled c
 	const actions = byTest("connection-actions");
 	const variables = byTest("connection-variables");
 	const abilities = byTest("connection-abilities");
-	assert.equal(children.indexOf(actions), 1, "management sits directly below the title");
-	assert(children.indexOf(actions) < children.indexOf(variables));
+	assert.equal(actions.parentElement?.querySelector("h2")?.textContent, "Canvas", "management sits beside the title");
+	assert(children.indexOf(byTest("connection-endpoint")) < children.indexOf(variables));
 	assert(children.indexOf(variables) < children.indexOf(abilities));
 	assert(button("Rename"));
-	assert(button("Remove connection"));
+	assert(button("Remove"));
 	assert(variables.querySelector("p")?.classList.contains("normal-case"));
 	assert(variables.textContent?.includes("API_TOKEN"), "variable keys retain exact capitalization");
 	const disclosure = abilities.querySelector("button")!;
@@ -361,10 +439,10 @@ test("management and variables precede collapsed abilities with a live enabled c
 	};
 	await click(button("Save"));
 	assert.equal(detail.querySelector("h2")?.textContent, "Renamed");
-	await click(button("Remove connection"));
+	await click(button("Remove"));
 	await click(button("Keep"));
-	assert(button("Remove connection"));
-	await click(button("Remove connection"));
+	assert(button("Remove"));
+	await click(button("Remove"));
 	globalThis.fetch = async (_url, init) => {
 		assert.equal(init?.method, "DELETE");
 		return Response.json({});
@@ -382,7 +460,7 @@ test("online setup also stays above abilities and empty tool lists have no discl
 	const setup = children.find((el) => el.querySelector("p")?.textContent === "Setup")!;
 	assert(setup);
 	assert(children.indexOf(setup) < children.indexOf(byTest("connection-abilities")));
-	assert(setup.querySelector("p")?.classList.contains("normal-case"));
+	assert(setup.textContent?.includes("https://example.com/mcp"));
 	await click(labelled("Back to Connections"));
 	await act(async () => root!.unmount());
 	host?.remove(); root = undefined; host = undefined;
@@ -390,5 +468,108 @@ test("online setup also stays above abilities and empty tool lists have no discl
 	await click(byTest("connection-canvas").querySelector("button")!);
 	assert(!byTest("connection-abilities"));
 	assert(button("Rename"));
-	assert(button("Remove connection"));
+	assert(button("Remove"));
+});
+
+test("connection details edit commands with quoted arguments and preserve drafts on failure", async () => {
+	const server = { ...serverFixture(), state: "connected", config: { command: "node", args: ["path with spaces", ""] } };
+	await mount([server], false);
+	await click(byTest("connection-canvas").querySelector("button")!);
+	await click(labelled("Edit command"));
+	assert.equal((labelled("Command") as HTMLInputElement).value, 'node "path with spaces" ""');
+	await enter("Command", 'node "new path" --flag');
+	globalThis.fetch = async (_url, init) => {
+		assert.deepEqual(JSON.parse(String(init?.body)), { command: "node", args: ["new path", "--flag"] });
+		return Response.json({ error: "Could not save" }, { status: 400 });
+	};
+	await click(button("Save"));
+	assert.equal((labelled("Command") as HTMLInputElement).value, 'node "new path" --flag');
+	assert(document.body.textContent?.includes("Could not save"));
+	globalThis.fetch = async () => Response.json({ server: { ...server, config: { command: "node", args: ["new path", "--flag"] } } });
+	await click(button("Save"));
+	assert(byTest("connection-endpoint").textContent?.includes('node "new path" --flag'));
+});
+
+test("online connections can edit their URL", async () => {
+	const server = { ...serverFixture(), state: "off", transport: "online", config: { url: "https://example.com/old" }, fields: [] };
+	await mount([server], false);
+	await click(byTest("connection-canvas").querySelector("button")!);
+	await click(labelled("Edit url"));
+	await enter("URL", "https://example.com/new");
+	globalThis.fetch = async (_url, init) => {
+		assert.deepEqual(JSON.parse(String(init?.body)), { url: "https://example.com/new" });
+		return Response.json({ server: { ...server, config: { url: "https://example.com/new" } } });
+	};
+	await click(button("Save"));
+	assert(byTest("connection-endpoint").textContent?.includes("https://example.com/new"));
+});
+
+const browserPath = process.env.CHROME_BIN ?? [
+	"/Applications/Helium.app/Contents/MacOS/Helium",
+	"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+	"/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome",
+].find(existsSync);
+
+test("connection rows share columns at wide and narrow widths", { skip: browserPath ? false : "Set CHROME_BIN to run the layout test" }, async () => {
+	const server = { ...serverFixture(), state: "connected", config: { command: "node", args: ["a-very-long-command-with-an-argument"] } };
+	await mount([server], false);
+	await click(byTest("connection-canvas").querySelector("button")!);
+	const layouts = [byTest("connection-detail").outerHTML];
+	await click(labelled("Edit command"));
+	layouts.push(byTest("connection-detail").outerHTML);
+	await click(button("Cancel"));
+	await click(labelled("Edit API_TOKEN"));
+	layouts.push(byTest("connection-detail").outerHTML);
+	const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+	const rules = css.match(/\.lh-connection-row(?: > :nth-child\(n \+ 3\))?\s*\{[^}]*\}/g);
+	assert.equal(rules?.length, 2);
+	const browser = await puppeteer.launch({ executablePath: browserPath, headless: true });
+	try {
+		const page = await browser.newPage();
+		for (const html of layouts) for (const width of [320, 900]) {
+			await page.setContent(`<style>* { box-sizing: border-box; } body { margin: 0; font: 12px sans-serif; } input { width: 100%; min-width: 0; } .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .invisible { visibility: hidden; } .min-w-0 { min-width: 0; } ${rules!.join("\n")}</style>${html}`);
+			await page.setViewport({ width, height: 600 });
+			const rows = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".lh-connection-row")].map((row) => ({
+				cells: [...row.children].map((cell) => { const r = cell.getBoundingClientRect(); return { left: r.left, right: r.right }; }),
+				right: row.getBoundingClientRect().right,
+			})).slice(0, 3));
+			assert.equal(rows.length, 3);
+			for (const row of rows) {
+				assert.ok(Math.abs(row.cells[0]!.left - rows[0]!.cells[0]!.left) < 1, `labels align at ${width}px`);
+				assert.ok(Math.abs(row.cells[1]!.left - rows[0]!.cells[1]!.left) < 1, `values align at ${width}px`);
+				assert.ok(Math.abs(row.cells[2]!.right - rows[0]!.cells[2]!.right) < 1, `actions align at ${width}px`);
+				assert.ok(row.cells[3]!.right <= row.right + 1, `actions fit at ${width}px`);
+			}
+		}
+	} finally {
+		await browser.close();
+	}
+});
+
+test("Rename and Remove share the same text baseline", { skip: browserPath ? false : "Set CHROME_BIN to run the layout test" }, async () => {
+	await mount([{ ...serverFixture(), state: "connected" }], false);
+	await click(byTest("connection-canvas").querySelector("button")!);
+	const actions = byTest("connection-actions").outerHTML;
+	const browser = await puppeteer.launch({ executablePath: browserPath, headless: true });
+	try {
+		const page = await browser.newPage();
+		await page.setContent(`<style>
+			body { font: 16px/1.6 sans-serif; }
+			button { font: inherit; padding: 0; border: 0; background: none; }
+			.flex { display: flex; } .items-center { align-items: center; }
+			.text-xs { font-size: 12px; line-height: 1.4; }
+		</style>${actions}`);
+		const positions = await page.evaluate(() => [...document.querySelectorAll("button")].map((button) => {
+			const range = document.createRange();
+			range.selectNodeContents(button);
+			const bounds = range.getBoundingClientRect();
+			return { text: button.textContent?.trim(), top: bounds.top, bottom: bounds.bottom };
+		}));
+		const rename = positions.find((position) => position.text === "Rename")!;
+		const remove = positions.find((position) => position.text === "Remove")!;
+		assert.ok(rename && remove);
+		assert.ok(Math.abs(rename.top - remove.top) < 0.5 && Math.abs(rename.bottom - remove.bottom) < 0.5);
+	} finally {
+		await browser.close();
+	}
 });

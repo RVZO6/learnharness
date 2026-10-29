@@ -181,6 +181,29 @@ describe("Settings → Connections (write + status)", () => {
 		assert.equal(fs.readFileSync(file, "utf8"), before);
 	});
 
+	it("edits launch commands and online URLs while preserving connection settings", async () => {
+		const file = writeConfig({ mcpServers: {
+			fake: { ...fake, env: { API_TOKEN: "private" }, tools: { fail: false } },
+			online: { url: "https://example.com/old", headers: { Authorization: "Bearer private" }, disabled: true },
+		} });
+		const updated = await updateMcpServer("fake", { command: fake.command, args: [...fake.args!, "extra arg"] }, file);
+		assert.equal(updated?.state, "connected");
+		await updateMcpServer("online", { url: "https://example.com/new" }, file);
+		const saved = JSON.parse(fs.readFileSync(file, "utf8")).mcpServers;
+		assert.deepEqual(saved.fake.args, [...fake.args!, "extra arg"]);
+		assert.equal(saved.fake.env.API_TOKEN, "private");
+		assert.equal(saved.fake.tools.fail, false);
+		assert.equal(saved.online.url, "https://example.com/new");
+		assert.equal(saved.online.headers.Authorization, "Bearer private");
+		assert.equal(saved.online.disabled, true);
+		const before = fs.readFileSync(file, "utf8");
+		await assert.rejects(updateMcpServer("online", { url: "not a url" }, file), McpConfigError);
+		await assert.rejects(updateMcpServer("fake", { url: "https://example.com" }, file), McpConfigError);
+		await assert.rejects(updateMcpServer("online", { command: "node" }, file), McpConfigError);
+		await assert.rejects(updateMcpServer("fake", { args: [42] as unknown as string[] }, file), McpConfigError);
+		assert.equal(fs.readFileSync(file, "utf8"), before);
+	});
+
 	it("renames and removes", async () => {
 		const file = writeConfig({ mcpServers: { fake } });
 		assert.equal((await updateMcpServer("fake", { rename: "echoer" }, file))?.name, "echoer");
@@ -204,4 +227,15 @@ describe("extraTools in the agent", () => {
 	it("labels a running MCP tool in the transcript", () => {
 		assert.equal(toolActivityLabel("mcp__canvas__get_course"), "Looking in Canvas…");
 	});
+});
+
+describe("Claude Code isolation", () => {
+ it("does not expose configured external MCP tools to Claude Code", async () => {
+  const tools = await mcpTools(writeConfig({ mcpServers: { fake } }));
+  const engine = fauxEngine();
+  engine.model = { ...engine.model, provider: "claude-code" };
+  const agent = createTeacherAgent(undefined, { engine, extraTools: tools });
+  assert.ok(!agent.state.tools.some((tool) => tool.name.startsWith("mcp__fake__")));
+  assert.doesNotMatch(agent.state.systemPrompt, /## External tools/);
+ });
 });

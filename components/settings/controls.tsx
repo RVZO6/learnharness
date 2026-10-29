@@ -15,20 +15,16 @@ import { cn } from "@/lib/utils";
 /** A section block: pronounced mono heading + content. */
 export function SettingsSection({
 	title,
-	hint,
 	children,
 	testid,
 }: {
 	title: string;
-	/** One quiet line under the header — only where it earns its place. */
-	hint?: string;
 	children: React.ReactNode;
 	testid?: string;
 }) {
 	return (
 		<section data-testid={testid} className="px-6 py-5">
 			<h2 className="text-sm uppercase tracking-widest text-foreground">{title}</h2>
-			{hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
 			<div className="mt-4 flex flex-col gap-3">{children}</div>
 		</section>
 	);
@@ -39,16 +35,18 @@ export function SettingsSection({
 export function SettingsGroup({
 	label,
 	headingClassName,
+	className,
 	children,
 	testid,
 }: {
 	label: string;
 	headingClassName?: string;
+	className?: string;
 	children: React.ReactNode;
 	testid?: string;
 }) {
 	return (
-		<div data-testid={testid} className="mt-5 border-t border-border/60 pt-4 first:mt-0 first:border-t-0 first:pt-0">
+		<div data-testid={testid} className={cn("mt-5 border-t border-border/60 pt-4 first:mt-0 first:border-t-0 first:pt-0", className)}>
 			<p className={cn("mb-2 text-xs uppercase tracking-widest text-muted-foreground", headingClassName)}>{label}</p>
 			<div className="flex flex-col gap-2">{children}</div>
 		</div>
